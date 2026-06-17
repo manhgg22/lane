@@ -1,25 +1,22 @@
 import type { FastifyInstance } from "fastify";
 import type { Database, HarnessConfig, Lane } from "@harness/orchestrator";
+import type { EventBus } from "../event-bus.js";
 import {
   getLaneById,
   getAllLanes,
   createFullLane,
   upLane,
   downLane,
-  loadConfig,
   insertEvent,
   insertStageRun,
 } from "@harness/orchestrator";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export async function actionRoutes(
   app: FastifyInstance,
   db: Database,
   config: HarnessConfig,
   rootDir: string,
+  bus: EventBus,
 ): Promise<void> {
   const MAX_PARALLEL = config.maxParallel;
 
@@ -50,6 +47,7 @@ export async function actionRoutes(
         }, db);
         insertStageRun(db, lane.id, "intake");
         insertEvent(db, lane.id, "action", { action: "create", slug });
+        bus.broadcast({ type: "lane:created", lane });
         return { ok: true, lane };
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -68,7 +66,9 @@ export async function actionRoutes(
       try {
         await upLane(rootDir, lane);
         insertEvent(db, lane.id, "action", { action: "up" });
-        return { ok: true, lane };
+        const updated = getLaneById(db, id)!;
+        bus.broadcast({ type: "lane:updated", lane: updated });
+        return { ok: true, lane: updated };
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         return reply.status(500).send({ error: msg });
@@ -86,7 +86,9 @@ export async function actionRoutes(
       try {
         await downLane(rootDir, lane);
         insertEvent(db, lane.id, "action", { action: "down" });
-        return { ok: true, lane };
+        const updated = getLaneById(db, id)!;
+        bus.broadcast({ type: "lane:updated", lane: updated });
+        return { ok: true, lane: updated };
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         return reply.status(500).send({ error: msg });

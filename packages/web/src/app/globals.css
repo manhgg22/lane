@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #080b11;
+  --bg2: #0b1019;
+  --panel: #0c121d;
+  --card: #0e131e;
+  --card-edge: #1a2433;
+  --line: #1b2533;
+  --text: #e7ebf1;
+  --muted: #828d9f;
+  --green: #34d27b;
+  --blue: #4a9eff;
+  --amber: #f2b134;
+  --pink: #ec4d7e;
+  --red: #f0506e;
+}
+
+body {
+  background: radial-gradient(1200px 600px at 80% -10%, #11203a55, transparent 60%), var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { HarnessConfig } from "./types.js";
+import type { HarnessConfig } from "@harness/types";
 
 export function loadConfig(configPath: string): HarnessConfig {
   const raw = readFileSync(configPath, "utf-8");

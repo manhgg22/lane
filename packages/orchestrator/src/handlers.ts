@@ -1,6 +1,6 @@
 import type { Database } from "./db.js";
-import type { Lane, StageName, StageResult } from "./types.js";
-import { STAGES } from "./types.js";
+import type { Lane, StageName, StageResult } from "@harness/types";
+import { STAGES } from "@harness/types";
 import { acquireLock, releaseLock } from "./lock.js";
 
 const HEAVY_LOCK_TYPE = "heavy_stage";

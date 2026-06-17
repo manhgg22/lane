@@ -1,7 +1,7 @@
 import initSqlJs, { type Database } from "sql.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { Lane, LaneEvent, StageRun } from "./types.js";
+import type { Lane, LaneEvent, StageRun } from "@harness/types";
 
 export type { Database } from "sql.js";
 

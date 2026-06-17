@@ -1,3 +1,5 @@
+// ── Core pipeline types ──
+
 export type LaneStatus = "running" | "stalled" | "needs_you";
 export type StageState = "pending" | "current" | "done" | "passed_no_evidence";
 export type LaneMode = "watching-pr" | "review-loop" | "implement";
@@ -83,3 +85,60 @@ export interface HarnessConfig {
   agent: string;
   lanes: LaneConfig[];
 }
+
+// ── API request/response contracts ──
+
+export interface CreateLaneRequest {
+  title: string;
+  slug: string;
+  tags?: string[];
+  criteria?: string[];
+}
+
+export interface LaneResponse {
+  ok: true;
+  lane: Lane;
+}
+
+export interface ErrorResponse {
+  error: string;
+}
+
+export interface SchedulerTickResponse {
+  ok: true;
+  processed: number;
+  results: RunResult[];
+}
+
+export interface LockInfo {
+  locked: boolean;
+  laneId?: number;
+  acquiredAt?: string;
+}
+
+// ── Runner types ──
+
+export interface RunResult {
+  laneId: number;
+  stage: StageName;
+  action: "advanced" | "failed" | "blocked" | "skipped";
+  reason?: string;
+}
+
+export interface SchedulerResult {
+  processed: number;
+  results: RunResult[];
+}
+
+// ── SSE event types ──
+
+export type SSEEvent =
+  | { type: "lane:created"; lane: Lane }
+  | { type: "lane:updated"; lane: Lane }
+  | { type: "stage:entered"; laneId: number; stage: StageName }
+  | { type: "stage:passed"; laneId: number; stage: StageName }
+  | { type: "stage:failed"; laneId: number; stage: StageName; reason: string }
+  | { type: "stage:blocked"; laneId: number; reason: string }
+  | { type: "lock:acquired"; lockType: string; laneId: number }
+  | { type: "lock:released"; lockType: string }
+  | { type: "scheduler:tick"; result: SchedulerTickResponse };

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { openDb, insertLane, updateLane, insertStageRun, getCurrentStageRun, getLaneById, getEvents } from "./db.js";
 import type { Database } from "./db.js";
-import { STAGES } from "./types.js";
+import { STAGES } from "@harness/types";
 import {
   TRANSITION_MAP,
   calcProgress,

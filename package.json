@@ -2,7 +2,9 @@
   "name": "feature-harness",
   "private": true,
   "scripts": {
-    "dev": "pnpm --filter @harness/api dev",
+    "dev": "concurrently -n api,web -c blue,green \"pnpm --filter @harness/api dev\" \"pnpm --filter @harness/web dev\"",
+    "dev:api": "pnpm --filter @harness/api dev",
+    "dev:web": "pnpm --filter @harness/web dev",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint"

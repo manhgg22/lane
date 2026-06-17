@@ -1,7 +1,7 @@
 import type { Database } from "./db.js";
 import { getAllLanes, getLaneById, insertStageRun } from "./db.js";
-import { STAGES } from "./types.js";
-import type { StageName } from "./types.js";
+import { STAGES } from "@harness/types";
+import type { StageName, RunResult, SchedulerResult } from "@harness/types";
 import {
   advanceStage,
   blockStage,
@@ -11,18 +11,6 @@ import {
 } from "./state-machine.js";
 import { handlerRegistry } from "./handlers.js";
 import { cleanStaleLocks } from "./lock.js";
-
-export interface RunResult {
-  laneId: number;
-  stage: StageName;
-  action: "advanced" | "failed" | "blocked" | "skipped";
-  reason?: string;
-}
-
-export interface SchedulerResult {
-  processed: number;
-  results: RunResult[];
-}
 
 export async function runLane(db: Database, laneId: number): Promise<RunResult> {
   const lane = getLaneById(db, laneId);

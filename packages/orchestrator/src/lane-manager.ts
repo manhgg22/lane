@@ -4,7 +4,7 @@ import { get } from "node:http";
 import { resolve, join } from "node:path";
 import type { Database } from "./db.js";
 import { insertLane, updateLane, getLaneById, getAllLanes } from "./db.js";
-import type { Lane, LaneConfig, HarnessConfig } from "./types.js";
+import type { Lane, LaneConfig, HarnessConfig } from "@harness/types";
 
 const LANES_DIR = "lanes";
 

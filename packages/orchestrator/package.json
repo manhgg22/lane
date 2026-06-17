@@ -17,6 +17,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@harness/types": "workspace:*",
     "sql.js": "^1.12.0"
   },
   "devDependencies": {

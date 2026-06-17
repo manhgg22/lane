@@ -9,8 +9,8 @@ import {
   queryAll,
   queryOne,
 } from "./db.js";
-import { STAGES } from "./types.js";
-import type { Lane, StageName, StageRun } from "./types.js";
+import { STAGES } from "@harness/types";
+import type { Lane, StageName, StageRun } from "@harness/types";
 
 export const TRANSITION_MAP: Record<StageName, StageName | null> = {
   intake: "implement",

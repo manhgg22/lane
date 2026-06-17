@@ -1,13 +1,14 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
-import fastifyStatic from "@fastify/static";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { openDb, seedDemoData, loadConfig, reconcileOnBoot } from "@harness/orchestrator";
+import { eventBus } from "./event-bus.js";
 import { healthRoutes } from "./routes/health.js";
 import { laneRoutes } from "./routes/lanes.js";
 import { actionRoutes } from "./routes/actions.js";
 import { stageRoutes } from "./routes/stage-routes.js";
+import { sseRoutes } from "./routes/sse.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = resolve(__dirname, "../../..");
@@ -25,18 +26,13 @@ reconcileOnBoot(ROOT_DIR, db);
 
 const app = Fastify({ logger: true });
 
-await app.register(cors, { origin: true });
-
-const webDir = resolve(__dirname, "../../web/public");
-await app.register(fastifyStatic, {
-  root: webDir,
-  prefix: "/",
-});
+await app.register(cors, { origin: ["http://localhost:3100"] });
 
 await healthRoutes(app);
 await laneRoutes(app, db);
-await actionRoutes(app, db, config, ROOT_DIR);
-await stageRoutes(app, db);
+await actionRoutes(app, db, config, ROOT_DIR, eventBus);
+await stageRoutes(app, db, eventBus);
+await sseRoutes(app, eventBus);
 
 try {
   await app.listen({ port: HARNESS_PORT, host: "0.0.0.0" });
