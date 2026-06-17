@@ -151,12 +151,22 @@ lanes:
 | `POST` | `/api/lanes/:id/reenter` | Re-enter current stage (bump attempt) |
 | `GET` | `/api/lanes/:id/lock` | Check lock status |
 
-### System
+### Scheduler
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/scheduler/tick` | Trigger one scheduler tick |
+| `POST` | `/api/scheduler/start` | Start auto-polling scheduler |
+| `POST` | `/api/scheduler/stop` | Stop scheduler |
+| `GET` | `/api/scheduler/status` | Get scheduler state (running, ticks, last tick) |
+| `POST` | `/api/scheduler/tick` | Trigger one manual scheduler tick |
+
+### Monitoring
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/health` | Basic health check |
+| `GET` | `/api/health/deep` | Deep health (DB, scheduler, lanes) |
+| `GET` | `/api/audit?limit=100&level=error` | Query audit log |
+| `GET` | `/api/metrics` | System metrics (lanes, stages, locks, scheduler) |
 | `GET` | `/api/events/stream` | SSE stream — real-time events |
-| `GET` | `/api/health` | Health check |
 
 ## SSE Events
 
@@ -172,6 +182,9 @@ type SSEEvent =
   | { type: "stage:blocked"; laneId: number; reason: string }
   | { type: "lock:acquired"; lockType: string; laneId: number }
   | { type: "lock:released"; lockType: string }
+  | { type: "scheduler:tick"; result: SchedulerTickResponse }
+  | { type: "scheduler:started" }
+  | { type: "scheduler:stopped" }
   | { type: "scheduler:tick"; result: SchedulerTickResponse }
 ```
 
@@ -232,7 +245,7 @@ function Dashboard() {
 ## Testing
 
 ```bash
-# Run all tests (32 orchestrator + 5 SDK = 37 total)
+# Run all tests (51 orchestrator + 5 SDK = 56 total)
 pnpm test
 
 # Run specific package tests
@@ -244,6 +257,11 @@ pnpm --filter @harness/sdk test
 
 - **State machine**: transition map completeness, advance/block/reenter/pass/fail flows, full 12-stage pipeline traversal, crash recovery (persist-before-return)
 - **Global lock**: acquire/release, idempotent same-lane, contention across lanes, stale lock cleanup
+- **Agent**: spawn args, exit code handling, stderr capture, spawn error rejection
+- **Exec**: docker exec command construction, lane dir execution, failure handling
+- **Semaphore**: max concurrency, queuing, release order, parallel task limit
+- **Scheduler**: start/stop lifecycle, double-start prevention, state persistence
+- **Recovery**: reset stuck stage_runs, release orphan locks, clean state detection
 - **SDK client**: getLanes, createLane, error handling, advanceStage, scheduler tick
 
 ## Tech Stack
@@ -268,11 +286,18 @@ feature-harness/
 │   │   └── src/index.ts # Lane, StageRun, SSEEvent, API types
 │   ├── orchestrator/    # Core engine
 │   │   └── src/
-│   │       ├── db.ts            # SQLite schema + queries
+│   │       ├── db.ts            # SQLite schema + queries + audit log
 │   │       ├── state-machine.ts # 12-stage transitions
-│   │       ├── lock.ts          # Global SQLite lock
-│   │       ├── handlers.ts      # Stage handler registry
-│   │       ├── runner.ts        # Lane runner + scheduler
+│   │       ├── lock.ts          # Global SQLite lock + lock types
+│   │       ├── handlers.ts      # Real stage handlers (agent, gates, PR, etc.)
+│   │       ├── runner.ts        # Parallel lane runner with semaphore
+│   │       ├── scheduler.ts     # Server-side polling loop with retry
+│   │       ├── agent.ts         # Claude Code headless wrapper
+│   │       ├── exec.ts          # Docker exec + lane dir commands
+│   │       ├── prompt-builder.ts # Build prompts from lane config
+│   │       ├── semaphore.ts     # Promise-based concurrency limiter
+│   │       ├── logger.ts        # Structured JSON logger
+│   │       ├── recovery.ts      # Crash recovery on boot
 │   │       ├── lane-manager.ts  # Docker lifecycle
 │   │       └── config.ts        # YAML config loader
 │   ├── api/             # Fastify REST + SSE
@@ -283,11 +308,13 @@ feature-harness/
 │   │           ├── lanes.ts     # CRUD lanes
 │   │           ├── actions.ts   # up/down + SSE broadcast
 │   │           ├── stage-routes.ts # advance/block/pass/reenter
+│   │           ├── scheduler.ts # start/stop/status scheduler
+│   │           ├── monitoring.ts # audit, metrics, deep health
 │   │           ├── sse.ts       # GET /api/events/stream
 │   │           └── health.ts    # Health check
 │   ├── sdk/             # API client + React hooks
 │   │   └── src/
-│   │       ├── client.ts        # HarnessClient class
+│   │       ├── client.ts        # HarnessClient class (+ scheduler methods)
 │   │       ├── sse.ts           # SSE connection helper
 │   │       └── react/
 │   │           ├── provider.tsx  # HarnessProvider context
@@ -295,16 +322,19 @@ feature-harness/
 │   └── web/             # Next.js frontend
 │       └── src/
 │           ├── app/
-│           │   ├── layout.tsx   # Root layout + providers
-│           │   ├── page.tsx     # Dashboard
+│           │   ├── layout.tsx   # Root layout + NavBar + providers
+│           │   ├── page.tsx     # Dashboard + scheduler control
+│           │   ├── audit/page.tsx    # Audit log viewer
 │           │   └── lanes/[id]/page.tsx  # Lane detail
 │           └── components/
-│               ├── PipelineSVG.tsx    # 12-stage visual pipeline
-│               ├── LaneCard.tsx      # Lane summary card
-│               ├── StatusCounter.tsx  # Status count pills
-│               ├── ActionBar.tsx     # Stage action buttons
-│               ├── EventTimeline.tsx # Real-time event log
-│               └── StageRunTable.tsx # Stage run history
+│               ├── PipelineSVG.tsx       # 12-stage visual pipeline
+│               ├── LaneCard.tsx         # Lane summary card
+│               ├── StatusCounter.tsx    # Status count pills
+│               ├── ActionBar.tsx        # Stage action buttons
+│               ├── EventTimeline.tsx    # Real-time event log
+│               ├── StageRunTable.tsx    # Stage run history
+│               ├── SchedulerControl.tsx # Start/stop/tick scheduler
+│               └── NavBar.tsx           # Navigation + health indicator
 ├── lanes.yaml           # Lane definitions
 ├── package.json         # Root workspace scripts
 └── pnpm-workspace.yaml  # Workspace config
@@ -316,10 +346,10 @@ feature-harness/
 - [x] **Phase 1** — Lane lifecycle: Docker isolation, clone, up/down, port allocation
 - [x] **Phase 2** — State machine: 12-stage pipeline, global lock, handlers, runner
 - [x] **Phase 2.5** — FE/BE separation: types, SDK, SSE, Next.js frontend
-- [ ] **Phase 3** — Agent integration: Claude Code headless in containers
-- [ ] **Phase 4** — Polling loop: auto-advance, retry logic, timeout handling
-- [ ] **Phase 5** — Multi-lane concurrency: parallel execution with lock coordination
-- [ ] **Phase 6** — Production hardening: error recovery, monitoring, logging
+- [x] **Phase 3** — Agent integration: Claude Code headless, real stage handlers, prompt builder
+- [x] **Phase 4** — Polling loop: server-side scheduler, auto-retry, scheduler API
+- [x] **Phase 5** — Multi-lane concurrency: semaphore, parallel execution, lock types, priority
+- [x] **Phase 6** — Production hardening: structured logger, crash recovery, audit log, metrics, graceful shutdown
 
 ## License
 
