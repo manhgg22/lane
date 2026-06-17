@@ -1,6 +1,6 @@
 targetRepo: ./fixtures/sample-target-app
 maxParallel: 5
-basePort: 3001
+basePort: 4001
 integrationBranch: development
 agent: claude-code
 

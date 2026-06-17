@@ -1,0 +1,17 @@
+{
+  "name": "sample-target-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node src/index.js",
+    "start": "node src/index.js",
+    "test": "node --test src/index.test.js",
+    "lint": "echo 'lint ok'",
+    "typecheck": "echo 'typecheck ok'"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "sql.js": "^1.12.0"
+  }
+}
