@@ -8,6 +8,7 @@ import {
   downLane,
   loadConfig,
   insertEvent,
+  insertStageRun,
 } from "@harness/orchestrator";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -47,6 +48,7 @@ export async function actionRoutes(
           tags: tags ?? [],
           criteria: criteria ?? [],
         }, db);
+        insertStageRun(db, lane.id, "intake");
         insertEvent(db, lane.id, "action", { action: "create", slug });
         return { ok: true, lane };
       } catch (err: unknown) {

@@ -50,6 +50,13 @@ CREATE TABLE IF NOT EXISTS events (
   type TEXT NOT NULL,
   payload TEXT NOT NULL DEFAULT '{}'
 );
+
+CREATE TABLE IF NOT EXISTS locks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lock_type TEXT UNIQUE NOT NULL,
+  lane_id INTEGER NOT NULL REFERENCES lanes(id),
+  acquired_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `;
 
 let _dbPath: string | null = null;
@@ -83,7 +90,7 @@ export function saveDb(db: Database): void {
   writeFileSync(_dbPath, buffer);
 }
 
-function queryAll(db: Database, sql: string, params: unknown[] = []): Record<string, unknown>[] {
+export function queryAll(db: Database, sql: string, params: unknown[] = []): Record<string, unknown>[] {
   const stmt = db.prepare(sql);
   if (params.length) stmt.bind(params);
   const results: Record<string, unknown>[] = [];
@@ -95,17 +102,17 @@ function queryAll(db: Database, sql: string, params: unknown[] = []): Record<str
   return results;
 }
 
-function queryOne(db: Database, sql: string, params: unknown[] = []): Record<string, unknown> | undefined {
+export function queryOne(db: Database, sql: string, params: unknown[] = []): Record<string, unknown> | undefined {
   const rows = queryAll(db, sql, params);
   return rows[0];
 }
 
-function run(db: Database, sql: string, params: unknown[] = []): void {
+export function run(db: Database, sql: string, params: unknown[] = []): void {
   db.run(sql, params);
   saveDb(db);
 }
 
-function getLastInsertId(db: Database): number {
+export function getLastInsertId(db: Database): number {
   const stmt = db.prepare("SELECT last_insert_rowid() as id");
   stmt.step();
   const row = stmt.getAsObject();
@@ -225,18 +232,7 @@ export function getStageRuns(db: Database, laneId: number): StageRun[] {
     db,
     "SELECT * FROM stage_runs WHERE lane_id = ? ORDER BY started_at DESC LIMIT 20",
     [laneId],
-  ).map((row) => ({
-    id: row.id as number,
-    laneId: row.lane_id as number,
-    stage: row.stage as string,
-    state: row.state as StageRun["state"],
-    attempt: row.attempt as number,
-    evidence: JSON.parse(row.evidence as string),
-    startedAt: row.started_at as string,
-    endedAt: (row.ended_at as string) ?? null,
-    result: (row.result as StageRun["result"]) ?? null,
-    message: row.message as string,
-  }));
+  ).map(rowToStageRun);
 }
 
 export function getEvents(db: Database, laneId: number, after?: number): LaneEvent[] {
@@ -264,4 +260,72 @@ export function insertEvent(
     "INSERT INTO events (lane_id, type, payload) VALUES (?, ?, ?)",
     [laneId, type, JSON.stringify(payload)],
   );
+}
+
+export function insertStageRun(
+  db: Database,
+  laneId: number,
+  stage: string,
+  attempt: number = 1,
+): StageRun {
+  db.run(
+    "INSERT INTO stage_runs (lane_id, stage, state, attempt) VALUES (?, ?, 'current', ?)",
+    [laneId, stage, attempt],
+  );
+  const id = getLastInsertId(db);
+  saveDb(db);
+  const row = queryOne(db, "SELECT * FROM stage_runs WHERE id = ?", [id])!;
+  return rowToStageRun(row);
+}
+
+export function updateStageRun(
+  db: Database,
+  id: number,
+  updates: Partial<{
+    state: string;
+    result: string | null;
+    evidence: string[];
+    endedAt: string;
+    message: string;
+  }>,
+): void {
+  const sets: string[] = [];
+  const params: unknown[] = [];
+
+  if (updates.state !== undefined) { sets.push("state = ?"); params.push(updates.state); }
+  if (updates.result !== undefined) { sets.push("result = ?"); params.push(updates.result); }
+  if (updates.evidence !== undefined) { sets.push("evidence = ?"); params.push(JSON.stringify(updates.evidence)); }
+  if (updates.endedAt !== undefined) { sets.push("ended_at = ?"); params.push(updates.endedAt); }
+  if (updates.message !== undefined) { sets.push("message = ?"); params.push(updates.message); }
+
+  if (sets.length === 0) return;
+  params.push(id);
+  run(db, `UPDATE stage_runs SET ${sets.join(", ")} WHERE id = ?`, params);
+}
+
+export function getCurrentStageRun(
+  db: Database,
+  laneId: number,
+): StageRun | undefined {
+  const row = queryOne(
+    db,
+    "SELECT * FROM stage_runs WHERE lane_id = ? AND state IN ('current','pending') ORDER BY id DESC LIMIT 1",
+    [laneId],
+  );
+  return row ? rowToStageRun(row) : undefined;
+}
+
+function rowToStageRun(row: Record<string, unknown>): StageRun {
+  return {
+    id: row.id as number,
+    laneId: row.lane_id as number,
+    stage: row.stage as string,
+    state: row.state as StageRun["state"],
+    attempt: row.attempt as number,
+    evidence: JSON.parse(row.evidence as string),
+    startedAt: row.started_at as string,
+    endedAt: (row.ended_at as string) ?? null,
+    result: (row.result as StageRun["result"]) ?? null,
+    message: row.message as string,
+  };
 }

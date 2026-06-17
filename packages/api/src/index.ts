@@ -7,6 +7,7 @@ import { openDb, seedDemoData, loadConfig, reconcileOnBoot } from "@harness/orch
 import { healthRoutes } from "./routes/health.js";
 import { laneRoutes } from "./routes/lanes.js";
 import { actionRoutes } from "./routes/actions.js";
+import { stageRoutes } from "./routes/stage-routes.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = resolve(__dirname, "../../..");
@@ -35,6 +36,7 @@ await app.register(fastifyStatic, {
 await healthRoutes(app);
 await laneRoutes(app, db);
 await actionRoutes(app, db, config, ROOT_DIR);
+await stageRoutes(app, db);
 
 try {
   await app.listen({ port: HARNESS_PORT, host: "0.0.0.0" });
