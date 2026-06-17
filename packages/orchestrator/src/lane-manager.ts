@@ -14,8 +14,12 @@ function lanesDir(rootDir: string): string {
   return dir;
 }
 
-function laneDir(rootDir: string, slug: string): string {
+export function getLaneDir(rootDir: string, slug: string): string {
   return join(lanesDir(rootDir), slug);
+}
+
+function laneDir(rootDir: string, slug: string): string {
+  return getLaneDir(rootDir, slug);
 }
 
 export function cloneLane(

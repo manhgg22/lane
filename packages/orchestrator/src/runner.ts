@@ -11,6 +11,7 @@ import {
 } from "./state-machine.js";
 import { handlerRegistry } from "./handlers.js";
 import { cleanStaleLocks } from "./lock.js";
+import { createSemaphore } from "./semaphore.js";
 
 export async function runLane(db: Database, laneId: number): Promise<RunResult> {
   const lane = getLaneById(db, laneId);
@@ -40,7 +41,15 @@ export async function runLane(db: Database, laneId: number): Promise<RunResult> 
     return { laneId, stage: currentStage, action: "skipped", reason: "lock contention" };
   }
 
-  const result = await handler.execute(lane, db);
+  let result;
+  try {
+    result = await handler.execute(lane, db);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    failStage(db, laneId, `handler threw: ${message}`);
+    handler.onFail(lane, db);
+    return { laneId, stage: currentStage, action: "failed", reason: message };
+  }
 
   switch (result) {
     case "pass":
@@ -63,19 +72,33 @@ export async function runLane(db: Database, laneId: number): Promise<RunResult> 
   }
 }
 
-export async function runScheduler(db: Database): Promise<SchedulerResult> {
+export async function runScheduler(
+  db: Database,
+  maxParallel: number = 5,
+): Promise<SchedulerResult> {
   cleanStaleLocks(db);
 
   const lanes = getAllLanes(db);
-  const eligible = lanes.filter(
-    (l) => l.mode === "implement" && l.status.includes("running"),
-  );
+  const eligible = lanes
+    .filter((l) => l.mode === "implement" && l.status.includes("running"))
+    .sort((a, b) => (b as any).priority ?? 0 - ((a as any).priority ?? 0));
 
+  const sem = createSemaphore(maxParallel);
   const results: RunResult[] = [];
-  for (const lane of eligible) {
-    const result = await runLane(db, lane.id);
-    results.push(result);
-  }
+
+  const tasks = eligible.map(async (lane) => {
+    await sem.acquire();
+    try {
+      const result = await runLane(db, lane.id);
+      results.push(result);
+    } catch (err) {
+      console.error(`[scheduler] runLane(${lane.id}) error:`, err);
+    } finally {
+      sem.release();
+    }
+  });
+
+  await Promise.allSettled(tasks);
 
   return { processed: results.length, results };
 }

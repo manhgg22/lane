@@ -53,3 +53,24 @@ export function cleanStaleLocks(db: Database, staleMinutes: number = 30): number
 
   return cleaned;
 }
+
+export async function tryAcquireWithTimeout(
+  db: Database,
+  lockType: string,
+  laneId: number,
+  timeoutMs: number = 30_000,
+  pollMs: number = 1_000,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (acquireLock(db, lockType, laneId)) return true;
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+  return false;
+}
+
+export const LOCK_TYPES = {
+  HEAVY_STAGE: "heavy_stage",
+  GITHUB_API: "github_api",
+  INTEGRATION_MERGE: "integration_merge",
+} as const;

@@ -9,6 +9,10 @@ import { laneRoutes } from "./routes/lanes.js";
 import { actionRoutes } from "./routes/actions.js";
 import { stageRoutes } from "./routes/stage-routes.js";
 import { sseRoutes } from "./routes/sse.js";
+import { schedulerRoutes } from "./routes/scheduler.js";
+import { monitoringRoutes } from "./routes/monitoring.js";
+import { stopScheduler } from "@harness/orchestrator/scheduler";
+import { releaseAllLocks, getAllLanes, saveDb } from "@harness/orchestrator";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = resolve(__dirname, "../../..");
@@ -33,10 +37,30 @@ await laneRoutes(app, db);
 await actionRoutes(app, db, config, ROOT_DIR, eventBus);
 await stageRoutes(app, db, eventBus);
 await sseRoutes(app, eventBus);
+await schedulerRoutes(app, db, config, eventBus);
+await monitoringRoutes(app, db);
 
 try {
   await app.listen({ port: HARNESS_PORT, host: "0.0.0.0" });
   console.log(`Harness API running on http://localhost:${HARNESS_PORT}`);
+  async function gracefulShutdown(signal: string) {
+    console.log(`\n[${signal}] Shutting down gracefully...`);
+    stopScheduler();
+
+    const lanes = getAllLanes(db);
+    for (const lane of lanes) {
+      releaseAllLocks(db, lane.id);
+    }
+
+    saveDb(db);
+
+    await app.close();
+    console.log("Server closed.");
+    process.exit(0);
+  }
+
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 } catch (err) {
   app.log.error(err);
   process.exit(1);

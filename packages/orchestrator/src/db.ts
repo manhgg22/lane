@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS lanes (
   note TEXT NOT NULL DEFAULT '',
   qc_dev INTEGER NOT NULL DEFAULT 0,
   qc_local INTEGER NOT NULL DEFAULT 0,
+  priority INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -49,6 +50,16 @@ CREATE TABLE IF NOT EXISTS events (
   ts TEXT NOT NULL DEFAULT (datetime('now')),
   type TEXT NOT NULL,
   payload TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts TEXT NOT NULL DEFAULT (datetime('now')),
+  level TEXT NOT NULL,
+  lane_id INTEGER,
+  stage TEXT,
+  message TEXT NOT NULL,
+  data TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS locks (
@@ -141,6 +152,7 @@ function rowToLane(row: Record<string, unknown>): Lane {
       ci: row.ci as string,
     },
     note: row.note as string,
+    priority: (row.priority as number) ?? 0,
     qc: {
       dev: row.qc_dev as number,
       local: row.qc_local as number,
@@ -313,6 +325,52 @@ export function getCurrentStageRun(
     [laneId],
   );
   return row ? rowToStageRun(row) : undefined;
+}
+
+export interface AuditEntry {
+  id: number;
+  ts: string;
+  level: string;
+  laneId: number | null;
+  stage: string | null;
+  message: string;
+  data: Record<string, unknown>;
+}
+
+export function insertAudit(
+  db: Database,
+  level: string,
+  message: string,
+  laneId?: number,
+  stage?: string,
+  data?: Record<string, unknown>,
+): void {
+  run(
+    db,
+    "INSERT INTO audit_log (level, message, lane_id, stage, data) VALUES (?, ?, ?, ?, ?)",
+    [level, message, laneId ?? null, stage ?? null, JSON.stringify(data ?? {})],
+  );
+}
+
+export function getAuditLog(
+  db: Database,
+  options: { limit?: number; level?: string } = {},
+): AuditEntry[] {
+  const { limit = 100, level } = options;
+  const sql = level
+    ? "SELECT * FROM audit_log WHERE level = ? ORDER BY id DESC LIMIT ?"
+    : "SELECT * FROM audit_log ORDER BY id DESC LIMIT ?";
+  const params = level ? [level, limit] : [limit];
+
+  return queryAll(db, sql, params).map((row) => ({
+    id: row.id as number,
+    ts: row.ts as string,
+    level: row.level as string,
+    laneId: (row.lane_id as number) ?? null,
+    stage: (row.stage as string) ?? null,
+    message: row.message as string,
+    data: JSON.parse(row.data as string),
+  }));
 }
 
 function rowToStageRun(row: Record<string, unknown>): StageRun {

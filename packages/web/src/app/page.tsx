@@ -3,6 +3,7 @@
 import { useLanes, useSSE } from "@harness/sdk/react";
 import { useCallback } from "react";
 import { StatusCounter } from "@/components/StatusCounter";
+import { SchedulerControl } from "@/components/SchedulerControl";
 import { LaneCard } from "@/components/LaneCard";
 import { PipelineSVG } from "@/components/PipelineSVG";
 import type { SSEEvent } from "@harness/types";
@@ -31,6 +32,8 @@ export default function DashboardPage() {
         <span className="flex-1" />
         <StatusCounter lanes={lanes} />
       </div>
+
+      <SchedulerControl />
 
       {firstLane && (
         <div className="bg-gradient-to-b from-[#0c121d] to-[#0a0f18] border border-[var(--line)] rounded-2xl p-4 mb-5">

@@ -8,6 +8,10 @@
     ".": {
       "import": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./scheduler": {
+      "import": "./src/scheduler.ts",
+      "default": "./src/scheduler.ts"
     }
   },
   "scripts": {

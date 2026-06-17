@@ -39,6 +39,7 @@ export interface Lane {
   git: { commit: string; subject: string; ci: string };
   note: string;
   qc: { dev: number; local: number };
+  priority: number;
   updatedAt: string;
   createdAt: string;
 }
@@ -75,6 +76,7 @@ export interface LaneConfig {
   slug: string;
   tags: string[];
   criteria: string[];
+  priority?: number;
 }
 
 export interface HarnessConfig {
@@ -130,7 +132,34 @@ export interface SchedulerResult {
   results: RunResult[];
 }
 
+// ── Agent / Exec types ──
+
+export interface AgentResult {
+  output: string;
+  exitCode: number;
+  durationMs: number;
+}
+
+export interface ExecResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+
+export interface SchedulerOptions {
+  intervalMs: number;
+  maxRetries: number;
+  retryDelayMs: number;
+}
+
 // ── SSE event types ──
+
+export interface SchedulerStateResponse {
+  running: boolean;
+  intervalMs: number;
+  lastTickAt: string | null;
+  totalTicks: number;
+}
 
 export type SSEEvent =
   | { type: "lane:created"; lane: Lane }
@@ -141,4 +170,6 @@ export type SSEEvent =
   | { type: "stage:blocked"; laneId: number; reason: string }
   | { type: "lock:acquired"; lockType: string; laneId: number }
   | { type: "lock:released"; lockType: string }
-  | { type: "scheduler:tick"; result: SchedulerTickResponse };
+  | { type: "scheduler:tick"; result: SchedulerTickResponse }
+  | { type: "scheduler:started" }
+  | { type: "scheduler:stopped" };

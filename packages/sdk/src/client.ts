@@ -100,6 +100,23 @@ export class HarnessClient {
     return { processed: res.processed, results: res.results };
   }
 
+  async startScheduler(): Promise<void> {
+    await this.request("/api/scheduler/start", { method: "POST" });
+  }
+
+  async stopScheduler(): Promise<void> {
+    await this.request("/api/scheduler/stop", { method: "POST" });
+  }
+
+  async getSchedulerStatus(): Promise<{
+    running: boolean;
+    intervalMs: number;
+    lastTickAt: string | null;
+    totalTicks: number;
+  }> {
+    return this.request("/api/scheduler/status");
+  }
+
   subscribe(handler: (event: SSEEvent) => void): () => void {
     const es = new EventSource(`${this.baseUrl}/api/events/stream`);
     es.onmessage = (msg) => {
