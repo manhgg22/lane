@@ -1,0 +1,371 @@
+<!--
+  FEATURE HARNESS DASHBOARD — live watch (polls /api/lanes)
+-->
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root{
+    --bg:#080b11; --bg2:#0b1019; --panel:#0c121d;
+    --card:#0e131e; --card-edge:#1a2433;
+    --line:#1b2533; --line-soft:#141c28;
+    --text:#e7ebf1; --muted:#828d9f; --muted2:#5a6478;
+    --green:#34d27b; --green-d:#1c6e46;
+    --blue:#4a9eff; --amber:#f2b134; --pink:#ec4d7e; --red:#f0506e;
+    --track:#161f2d;
+    --g1:#4a9eff; --g2:#3fe0c5; --g3:#9b6dff;
+    --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:
+      radial-gradient(1200px 600px at 80% -10%, #11203a55, transparent 60%),
+      var(--bg);
+    color:var(--text);font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;padding:22px 20px 60px;
+  }
+  .wrap{max-width:1320px;margin:0 auto}
+  .top{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:18px}
+  .top h1{font-size:26px;font-weight:800;letter-spacing:-.4px;margin:0}
+  .top .sub{color:var(--muted);font-size:14px}
+  .top .spacer{flex:1}
+  .pills{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .pill{font-size:12px;padding:5px 11px;border-radius:999px;border:1px solid var(--line);
+    color:var(--muted);background:#0d131e;white-space:nowrap}
+  .pill b{color:var(--text);font-weight:700}
+  .pill.run{color:#bde8cd;border-color:#1f5a3b}
+  .pill.need{color:#f4d28a;border-color:#7a5a1e}
+  .pill.stall{color:#f1a7bd;border-color:#7a2a40}
+  .addlane{font-size:12.5px;font-weight:700;color:#062b16;background:linear-gradient(180deg,#46e88a,#2cc06f);
+    border:0;border-radius:999px;padding:7px 14px;cursor:pointer;box-shadow:0 4px 14px #2cc06f44}
+  .panel{background:linear-gradient(180deg,#0c121d,#0a0f18);border:1px solid var(--line);
+    border-radius:16px;padding:16px 16px 14px;margin-bottom:22px;overflow:hidden}
+  .lanehead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+  .lanehead .ln{font-weight:700;font-size:14px}
+  .chip{font-family:var(--mono);font-size:11.5px;color:#9fc4ff;border:1px solid #25406a;
+    background:#0e1830;border-radius:7px;padding:2px 8px}
+  .lanehead .ttl{font-size:14px;color:#dfe5ee}
+  .lanehead .hint{margin-left:auto;color:var(--muted2);font-size:11.5px}
+  .graph-scroll{overflow-x:auto;overflow-y:hidden;margin:2px -4px 4px}
+  .graph-scroll svg{display:block;min-width:1180px}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;align-items:center;
+    font-size:11.5px;color:var(--muted);padding:8px 2px 2px}
+  .legend .it{display:flex;align-items:center;gap:6px}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+  .dot.green{background:var(--green)} .dot.blue{background:var(--blue)}
+  .dot.amber{background:var(--amber)} .dot.gray{background:#43506322;border:1.5px solid #4a566a}
+  .legend .far{margin-left:auto;color:var(--muted2)}
+  .brow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    padding:10px 2px 4px;font-size:12.5px;color:var(--muted)}
+  .branch{display:flex;align-items:center;gap:6px;font-family:var(--mono);color:#cdd6e2}
+  .badge-cur{font-family:var(--mono);font-size:10.5px;color:#bff0d2;background:#11331f;
+    border:1px solid #1f5a3b;border-radius:6px;padding:1px 6px}
+  select{font-family:var(--mono);font-size:12px;color:#dfe5ee;background:#0e1622;
+    border:1px solid var(--line);border-radius:8px;padding:4px 8px}
+  .report{margin-left:6px;color:#7fb0ff;text-decoration:none}
+  .qcwrap{padding:6px 2px 2px}
+  .qclabel{font-family:var(--mono);font-size:11px;color:var(--muted);margin:8px 0 6px}
+  .thumbs{display:flex;gap:8px;align-items:center;flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px}
+  .thumb{flex:0 0 auto;width:92px;height:58px;border-radius:7px;border:1px solid var(--line);
+    background:linear-gradient(135deg,#111826,#0c1019);position:relative;overflow:hidden}
+  .thumb::before{content:"";position:absolute;inset:8px;border-radius:3px;
+    background:repeating-linear-gradient(0deg,#1c2636,transparent 0 6px,#1a2230 6px 7px);}
+  .thumb.dark{background:#0a0e16}
+  .more{flex:0 0 auto;font-family:var(--mono);font-size:12px;color:var(--muted);padding:0 8px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
+  .card{background:var(--card);border:1px solid var(--card-edge);border-radius:14px;
+    padding:14px 14px 12px;position:relative;cursor:pointer;transition:.15s}
+  .card:hover{border-color:#2a3a52;transform:translateY(-1px)}
+  .card.sel{border-color:#3a6cff;box-shadow:0 0 0 1px #3a6cff66,0 10px 30px #0008}
+  .card.stalled{border-top:2px solid var(--pink)}
+  .card.needs{border-top:2px solid var(--amber)}
+  .chead{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .chead .lab{font-family:var(--mono);font-size:11px;letter-spacing:1px;color:var(--muted)}
+  .chead .st{margin-left:auto;display:flex;gap:6px}
+  .tag{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.5px;
+    padding:2px 7px;border-radius:6px;text-transform:uppercase}
+  .tag.stalled{color:#ffd0dd;background:#3a1322;border:1px solid #6e2138}
+  .tag.running{color:#cfe9ff;background:#102236;border:1px solid #244a73}
+  .tag.needs{color:#ffe6b0;background:#33260c;border:1px solid #6e521e}
+  .ctitle{font-size:14.5px;font-weight:700;line-height:1.3;margin:2px 0 10px}
+  .pbar-row{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+  .pbar{flex:1;height:8px;border-radius:6px;background:var(--track);overflow:hidden}
+  .pbar > i{display:block;height:100%;border-radius:6px;
+    background:linear-gradient(90deg,var(--g1),var(--g2) 55%,var(--g3))}
+  .pct{font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .meta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:9px}
+  .mtag{font-family:var(--mono);font-size:10.5px;color:#bfe9cf;border:1px solid #214b34;
+    border-radius:6px;padding:2px 7px;display:flex;align-items:center;gap:5px}
+  .mtag.go{color:#9aa6b6;border-color:#2a3548;background:#10151f}
+  .mtag .d{width:6px;height:6px;border-radius:50%;background:var(--green)}
+  .ago{margin-left:auto;font-family:var(--mono);font-size:11px}
+  .ago.warm{color:var(--pink)} .ago.fresh{color:var(--amber)} .ago.cool{color:#7fd8a4}
+  .log{font-family:var(--mono);font-size:11.5px;color:#aeb8c6;line-height:1.55;
+    background:#0a0e17;border:1px solid var(--line-soft);border-radius:9px;padding:8px 10px;margin-bottom:9px}
+  .log .br{color:#6f7c8f}
+  .log .commit{color:#d6deea;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+  .log .green{color:#6fd99a}
+  .links{display:flex;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;margin-top:6px}
+  .links a{color:#7fb0ff;text-decoration:none}
+  .links .port{color:#7fd8a4}
+  .note{font-family:var(--mono);font-size:11px;color:#c9d3e0;line-height:1.5;
+    background:#0c1422;border:1px solid #18243a;border-left:3px solid var(--green);
+    border-radius:8px;padding:8px 10px;margin:10px 0}
+  .note.amber{border-left-color:var(--amber)}
+  .note .ok{color:var(--green)}
+  .actions{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:8px}
+  .abtn{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 2px;
+    background:#0c1119;border:1px solid var(--line);border-radius:8px;color:var(--muted);
+    font-size:9.5px;cursor:pointer;transition:.12s}
+  .abtn:hover{color:var(--text);border-color:#2a3a52;background:#101725}
+  .abtn svg{width:13px;height:13px}
+  .empty{text-align:center;padding:60px 20px;color:var(--muted)}
+  .empty h2{color:var(--text);margin-bottom:8px}
+  .error-banner{background:#2a1019;border:1px solid #6e2138;color:#ffd0dd;
+    padding:10px 16px;border-radius:10px;margin-bottom:16px;font-size:13px;display:none}
+  ::-webkit-scrollbar{height:8px;width:8px}
+  ::-webkit-scrollbar-thumb{background:#1f2a3a;border-radius:8px}
+</style>
+
+<div class="wrap">
+  <div class="error-banner" id="error-banner"></div>
+  <div class="top">
+    <h1>Feature Harness</h1>
+    <span class="sub">parallel lanes — live watch</span>
+    <span class="spacer"></span>
+    <div class="pills" id="pills"></div>
+  </div>
+  <div class="panel">
+    <div class="lanehead">
+      <span class="ln" id="d-lane">Lane 1</span>
+      <span class="chip" id="d-mode">—</span>
+      <span class="ttl" id="d-title">—</span>
+      <span class="hint">click a card to map another lane</span>
+    </div>
+    <div class="graph-scroll"><svg id="graph" viewBox="0 0 1240 380" xmlns="http://www.w3.org/2000/svg"></svg></div>
+    <div class="legend">
+      <span class="it"><span class="dot green"></span>done</span>
+      <span class="it"><span class="dot blue"></span>current</span>
+      <span class="it"><span class="dot amber"></span>passed without evidence</span>
+      <span class="it"><span class="dot gray"></span>pending</span>
+      <span class="it" style="color:var(--amber)">self-resolves &amp; continues</span>
+      <span class="far">red dashed = fail · blue = re-entry</span>
+    </div>
+    <div class="brow">
+      <span class="branch">⎇ <b id="b-name">—</b></span>
+      <span class="badge-cur">current</span>
+      <select id="b-select"></select>
+      <a class="report" href="#">task report</a>
+    </div>
+    <div class="qcwrap">
+      <div class="qclabel" id="qc1">qc-dev · 0</div>
+      <div class="thumbs" id="thumbs-dev"></div>
+      <div class="qclabel" id="qc2">qc-local · 0</div>
+      <div class="thumbs" id="thumbs-local"></div>
+    </div>
+  </div>
+  <div class="grid" id="grid"></div>
+</div>
+
+<script>
+const API_BASE = location.origin;
+const STAGES = [
+  ["intake","clipboard"], ["implement","wand"], ["gates","pencil"], ["PR","mail"],
+  ["integrate","puzzle"], ["e2e + QC","search"], ["review","binoc"], ["er gate","gate"],
+  ["push-dev","rocket"], ["dev/QC","shield"], ["watch PR","eye"], ["done","check"]
+];
+const ICON = {
+  clipboard:'<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4h6v3H9z"/>',
+  wand:'<path d="M5 19l9-9"/><path d="M14 4l1 2 2 1-2 1-1 2-1-2-2-1 2-1z"/>',
+  pencil:'<path d="M5 19l3-1L19 7l-2-2L6 16z"/>',
+  mail:'<rect x="4" y="6" width="16" height="12" rx="2"/><path d="M5 8l7 5 7-5"/>',
+  puzzle:'<path d="M9 5a2 2 0 014 0h3v3a2 2 0 010 4v3h-3a2 2 0 01-4 0H6v-3a2 2 0 010-4V5z"/>',
+  search:'<circle cx="11" cy="11" r="6"/><path d="M16 16l4 4"/>',
+  binoc:'<circle cx="7" cy="14" r="3.5"/><circle cx="17" cy="14" r="3.5"/><path d="M9 6l1 8M15 6l-1 8M11 14h2"/>',
+  gate:'<path d="M5 20V6M19 20V6M5 8h14M5 13h14"/>',
+  rocket:'<path d="M12 3c3 2 4 6 3 10l-3 3-3-3c-1-4 0-8 3-10z"/><path d="M9 18l-2 3M15 18l2 3"/>',
+  shield:'<path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z"/>',
+  eye:'<path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/>',
+  check:'<path d="M5 12l5 5L19 7"/>',
+  wrench:'<path d="M15 6a4 4 0 00-5 5l-6 6 2 2 6-6a4 4 0 005-5l-3 1-2-2z"/>'
+};
+const MINI = {
+  rocket:'<path d="M12 3c3 2 4 6 3 10l-3 3-3-3c-1-4 0-8 3-10z"/>',
+  square:'<rect x="6" y="6" width="12" height="12" rx="2"/>',
+  eraser:'<path d="M5 16l6-6 7 7-3 3H8z"/>',
+  users:'<circle cx="9" cy="9" r="3"/><path d="M3 20a6 6 0 0112 0"/><circle cx="17" cy="8" r="2.5"/>',
+  key:'<circle cx="8" cy="12" r="3.5"/><path d="M11 12h9l-2 2m2-2l-2-2"/>',
+  refresh:'<path d="M4 12a8 8 0 0114-5M20 12a8 8 0 01-14 5"/><path d="M18 4v4h-4M6 20v-4h4"/>'
+};
+
+let LANES = [];
+let selected = 0;
+
+function timeAgo(iso) {
+  if (!iso) return { text: '—', cls: 'cool' };
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 5) return { text: mins + 'm ago', cls: 'fresh' };
+  if (mins < 60) return { text: mins + 'm ago', cls: 'cool' };
+  const hrs = Math.floor(mins / 60);
+  return { text: hrs + 'h ' + (mins % 60) + 'm ago', cls: 'warm' };
+}
+
+function mapLane(raw, idx) {
+  const ago = timeAgo(raw.updatedAt);
+  const statusArr = (raw.status || []).map(s => s.toUpperCase());
+  const hasNeeds = statusArr.includes('NEEDS_YOU') || statusArr.includes('NEEDS YOU');
+  return {
+    n: raw.id, mode: raw.mode, title: raw.title,
+    branch: raw.slug, pct: raw.progress, tags: raw.tags || [],
+    ago: ago.text, agoCls: ago.cls,
+    commit: (raw.git?.commit || '') + ' ' + (raw.git?.subject || ''),
+    ci: raw.git?.ci || '—',
+    pr: raw.prNumber, ticket: raw.ticket, port: raw.port,
+    cur: raw.stageIndex, status: statusArr,
+    note: {
+      ok: hasNeeds ? '' : (raw.progress >= 90 ? 'SHIPPED' : ''),
+      text: raw.note || '—',
+      amber: hasNeeds
+    },
+    qcDev: raw.qc?.dev || 0, qcLocal: raw.qc?.local || 0
+  };
+}
+
+function ic(name,x,y,col){
+  return '<g transform="translate('+(x-7)+','+(y-7)+') scale(0.58)" fill="none" stroke="'+col+'" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">'+ICON[name]+'</g>';
+}
+
+function buildGraph(cur){
+  const n=STAGES.length, L=70, R=70, W=1240, usable=W-L-R, gap=usable/(n-1), Y=150, RAD=17;
+  const X=i=>L+i*gap;
+  let s="";
+  s+='<path d="M '+X(2)+' '+(Y+RAD)+' V 300 H '+X(1)+' V '+(Y+RAD)+'" stroke="#3f7bd6" stroke-width="1.6" stroke-dasharray="5 5" fill="none" opacity=".8"/>';
+  s+='<text x="'+(X(1)+14)+'" y="252" fill="#6fa0e0" font-size="11" font-family="var(--mono)">re-enter stage 2</text>';
+  s+='<path d="M '+X(5)+' '+(Y-RAD)+' V 92 H '+X(4)+' V '+(Y-RAD)+'" stroke="#c44a68" stroke-width="1.6" stroke-dasharray="5 5" fill="none" opacity=".8"/>';
+  s+='<text x="'+(X(4)+8)+'" y="86" fill="#d77c93" font-size="10.5" font-family="var(--mono)">re-merge conflicts</text>';
+  s+='<path d="M '+X(9)+' '+(Y+RAD)+' V 340 H '+X(3)+'" stroke="#9c3b52" stroke-width="1.4" stroke-dasharray="4 5" fill="none" opacity=".7"/>';
+  s+='<path d="M '+X(7)+' '+(Y+RAD)+' L '+(X(8)-6)+' 232" stroke="#c44a68" stroke-width="1.5" stroke-dasharray="5 5" fill="none"/>';
+  s+='<text x="'+(X(7)+6)+'" y="206" fill="#d77c93" font-size="10.5" font-family="var(--mono)">1x</text>';
+  s+='<path d="M '+X(10)+' '+(Y-RAD)+' V 78" stroke="#2f9b5e" stroke-width="1.6" fill="none"/>';
+  for(let i=0;i<n-1;i++){
+    const done=i<cur;
+    s+='<line x1="'+(X(i)+RAD)+'" y1="'+Y+'" x2="'+(X(i+1)-RAD)+'" y2="'+Y+'" stroke="'+(done?'#2f9b5e':'#26303f')+'" stroke-width="'+(done?2.4:2)+'"/>';
+    const mx=X(i+1)-RAD-2, col=done?'#34d27b':'#3a465a';
+    s+='<path d="M '+(mx-5)+' '+(Y-4)+' L '+mx+' '+Y+' L '+(mx-5)+' '+(Y+4)+'" fill="'+col+'"/>';
+  }
+  STAGES.forEach((st,i)=>{
+    let ring,fill,icol;
+    if(i<cur){ring="#34d27b";fill="#0f2418";icol="#5fe39a";}
+    else if(i===cur){ring="#ec4d7e";fill="#2a1019";icol="#ff8fae";}
+    else{ring="#3a4659";fill="#0d121b";icol="#5b6678";}
+    if(i===cur){
+      s+='<circle cx="'+X(i)+'" cy="'+Y+'" r="'+(RAD+4)+'" fill="none" stroke="#ec4d7e" stroke-width="1.4" opacity=".5"><animate attributeName="r" values="'+(RAD+3)+';'+(RAD+7)+';'+(RAD+3)+'" dur="1.8s" repeatCount="indefinite"/><animate attributeName="opacity" values=".5;0;.5" dur="1.8s" repeatCount="indefinite"/></circle>';
+    }
+    s+='<circle cx="'+X(i)+'" cy="'+Y+'" r="'+RAD+'" fill="'+fill+'" stroke="'+ring+'" stroke-width="2.4"/>';
+    s+=ic(st[1],X(i),Y,icol);
+    s+='<text x="'+X(i)+'" y="'+(Y+RAD+16)+'" text-anchor="middle" fill="#9aa5b6" font-size="11" font-family="var(--sans)">'+st[0]+'</text>';
+  });
+  s+='<circle cx="'+X(10)+'" cy="62" r="13" fill="#0f2418" stroke="#34d27b" stroke-width="2"/>'+ic("check",X(10),62,"#5fe39a")+'<text x="'+X(10)+'" y="40" text-anchor="middle" fill="#9aa5b6" font-size="10.5">ticket</text>';
+  s+='<circle cx="'+X(3)+'" cy="320" r="13" fill="#1b1320" stroke="#7a5d35" stroke-width="2"/>'+ic("wrench",X(3),320,"#d9b066")+'<text x="'+X(3)+'" y="345" text-anchor="middle" fill="#9aa5b6" font-size="10.5">fix on branch</text>';
+  s+='<circle cx="'+(X(8)-6)+'" cy="245" r="13" fill="#2a1019" stroke="#ec4d7e" stroke-width="2"/>'+ic("eye",X(8)-6,245,"#ff8fae")+'<text x="'+(X(8)-6+20)+'" y="248" fill="#f1a7bd" font-size="11" font-family="var(--mono)">blocked — needs you</text>';
+  return s;
+}
+
+function tagHTML(t){ return '<span class="mtag '+(t==='GO'?'go':'')+'">'+(t!=='GO'?'<i class="d"></i>':'')+t+'</span>'; }
+function statusTag(s){
+  const c = s==='STALLED'?'stalled':s.includes('NEED')?'needs':'running';
+  return '<span class="tag '+c+'">'+s+'</span>';
+}
+
+function abtn(icon,label){
+  return '<button class="abtn" onclick="event.stopPropagation();doAction(\''+label+'\')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+MINI[icon]+'</svg>'+label+'</button>';
+}
+
+function cardHTML(l,idx){
+  const cls = l.status.includes('STALLED')?'stalled':l.status.some(s=>s.includes('NEED'))?'needs':'';
+  return '<div class="card '+cls+' '+(idx===selected?'sel':'')+'" data-i="'+idx+'">'
+    +'<div class="chead"><span class="lab">LANE '+l.n+'</span><span class="st">'+l.status.map(statusTag).join('')+'</span></div>'
+    +'<div class="ctitle">'+l.title+'</div>'
+    +'<div class="pbar-row"><span class="chip">'+l.mode+'</span><span class="pbar"><i style="width:'+l.pct+'%"></i></span><span class="pct">'+l.pct+'%</span></div>'
+    +'<div class="meta">'+l.tags.map(tagHTML).join('')+'<span class="ago '+l.agoCls+'">'+l.ago+'</span></div>'
+    +'<div class="log"><span class="br">development</span><span class="commit">'+l.commit+'</span><span class="green">CI '+l.ci+'</span>'
+    +'<div class="links">'+(l.pr?'<a href="#">#'+l.pr+'</a>':'')+(l.ticket?'<a href="#">'+l.ticket+'</a>':'')+'<a class="port" href="http://127.0.0.1:'+l.port+'">:'+l.port+'</a></div></div>'
+    +'<div class="note '+(l.note.amber?'amber':'')+'"><span class="ok">'+(l.note.ok||'')+'</span> '+l.note.text+'</div>'
+    +'<div class="actions">'+abtn('rocket','up')+abtn('square','down')+abtn('eraser','clear')+abtn('users','agents')+abtn('key','creds')+abtn('refresh','reset')+'</div>'
+    +'</div>';
+}
+
+function doAction(name) {
+  const lane = LANES[selected];
+  if (!lane) return;
+  fetch(API_BASE+'/api/lanes/'+lane.n+'/'+name, {method:'POST'})
+    .then(()=> poll())
+    .catch(e=> console.error('action failed:', e));
+}
+
+function renderAll(){
+  const mapped = LANES.map(mapLane);
+  // header
+  const running = mapped.filter(l=>l.status.includes('RUNNING')).length;
+  const need = mapped.filter(l=>l.status.some(s=>s.includes('NEED'))).length;
+  const stall = mapped.filter(l=>l.status.includes('STALLED')).length;
+  document.getElementById('pills').innerHTML =
+    '<span class="pill"><b>'+mapped.length+'</b> lanes</span>'
+    +'<span class="pill run"><b>'+running+'</b> running</span>'
+    +'<span class="pill need"><b>'+need+'</b> need you</span>'
+    +'<span class="pill stall"><b>'+stall+'</b> stalled</span>'
+    +'<button class="addlane">+ Add lane</button>';
+
+  if (mapped.length === 0) {
+    document.getElementById('grid').innerHTML = '<div class="empty"><h2>No lanes yet</h2><p>Add your first lane to get started</p></div>';
+    return;
+  }
+
+  if (selected >= mapped.length) selected = 0;
+  const l = mapped[selected];
+
+  // detail
+  document.getElementById('d-lane').textContent = 'Lane '+l.n;
+  document.getElementById('d-mode').textContent = l.mode;
+  document.getElementById('d-title').textContent = l.title;
+  document.getElementById('b-name').textContent = l.branch;
+  document.getElementById('graph').innerHTML = buildGraph(l.cur);
+  document.getElementById('b-select').innerHTML =
+    mapped.map((x,i)=>'<option '+(i===selected?'selected':'')+'>'+x.branch+'</option>').join('');
+  document.getElementById('qc1').textContent = 'qc-dev · '+l.qcDev;
+  document.getElementById('qc2').textContent = 'qc-local · '+l.qcLocal;
+  const shownDev = Math.min(l.qcDev, 7), shownLocal = Math.min(l.qcLocal, 7);
+  document.getElementById('thumbs-dev').innerHTML =
+    Array.from({length:shownDev}).map(()=>'<div class="thumb"></div>').join('')+(l.qcDev>shownDev?'<span class="more">+'+(l.qcDev-shownDev)+'</span>':'');
+  document.getElementById('thumbs-local').innerHTML =
+    Array.from({length:shownLocal}).map(()=>'<div class="thumb"></div>').join('')+(l.qcLocal>shownLocal?'<span class="more">+'+(l.qcLocal-shownLocal)+'</span>':'');
+
+  // cards
+  document.getElementById('grid').innerHTML = mapped.map(cardHTML).join('');
+  document.querySelectorAll('.card').forEach(c=>{
+    c.onclick = ()=>{ selected = +c.dataset.i; renderAll(); };
+  });
+}
+
+async function poll(){
+  try {
+    const r = await fetch(API_BASE+'/api/lanes');
+    if (!r.ok) throw new Error('API '+r.status);
+    LANES = await r.json();
+    document.getElementById('error-banner').style.display='none';
+    renderAll();
+  } catch(e) {
+    document.getElementById('error-banner').textContent = "Can't reach orchestrator — retrying... ("+e.message+")";
+    document.getElementById('error-banner').style.display='block';
+  }
+}
+
+poll();
+setInterval(poll, 4000);
+
+document.getElementById('b-select').addEventListener('change', function(){
+  selected = this.selectedIndex;
+  renderAll();
+});
+</script>

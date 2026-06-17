@@ -1,0 +1,19 @@
+targetRepo: ./fixtures/sample-target-app
+maxParallel: 5
+basePort: 3001
+integrationBranch: development
+agent: claude-code
+
+lanes:
+  - title: "Chat bubble tables: scroll + sticky header"
+    slug: chat-md-tables
+    tags: [api, fe, GO]
+    criteria:
+      - "sticky header khi scroll danh sách"
+      - "không vỡ layout mobile"
+  - title: "Codebase quick-wins refactor"
+    slug: codebase-quick-wins
+    tags: [api, fe, GO]
+    criteria:
+      - "không đổi behavior"
+      - "test xanh"

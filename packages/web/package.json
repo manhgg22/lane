@@ -1,0 +1,9 @@
+{
+  "name": "@harness/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "npx serve public -l 8091 --no-clipboard",
+    "build": "echo 'Static files — no build needed'"
+  }
+}
