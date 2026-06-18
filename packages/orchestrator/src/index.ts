@@ -7,8 +7,12 @@ export { cloneLane, removeLaneDir, allocatePort, renderDockerCompose, dockerUp, 
 export { STAGES } from "@harness/types";
 export type { Lane, StageRun, LaneEvent, LaneConfig, HarnessConfig, LaneStatus, StageState, LaneMode, StageName, StageResult, CreateLaneRequest, LaneResponse, ErrorResponse, SchedulerTickResponse, LockInfo, SSEEvent, RunResult, SchedulerResult, AgentResult, ExecResult, SchedulerOptions } from "@harness/types";
 
-export { runAgent } from "./agent.js";
+export { runAgent, spawnAgentStream } from "./agent.js";
 export type { AgentOptions } from "./agent.js";
+export { launchLane, resumeLane, getActiveSession, getAllActiveSessions, buildLaunchPrompt } from "./launcher.js";
+export type { LaunchOptions, LaneSession } from "./launcher.js";
+export { startMonitoringLane, stopMonitoringLane, stopAllMonitors } from "./monitor.js";
+export type { StateReport, MonitorCallback } from "./monitor.js";
 export { execInContainer, execInLaneDir } from "./exec.js";
 export { buildImplementPrompt, buildReviewPrompt, buildGatesPrompt } from "./prompt-builder.js";
 

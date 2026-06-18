@@ -1,0 +1,79 @@
+#!/usr/bin/env node
+// harness-report — CLI for agents to report stage transitions
+// Writes/updates .harness/state.json so the monitor can pick it up.
+// Usage: harness-report --stage <stage> --status <status> [--attempt <n>] [--evidence <path>...] [--note "<text>"]
+
+const fs = require("fs");
+const path = require("path");
+
+const VALID_STAGES = [
+  "intake", "implement", "gates", "PR", "integrate",
+  "e2e+QC", "review", "er gate", "push-dev", "dev/QC", "watch PR", "done"
+];
+const VALID_STATUSES = ["running", "passed_no_evidence", "blocked", "needs_you", "done", "fail"];
+
+function parseArgs(argv) {
+  const args = { evidence: [] };
+  let i = 2;
+  while (i < argv.length) {
+    const arg = argv[i];
+    if (arg === "--stage" && argv[i + 1]) { args.stage = argv[++i]; }
+    else if (arg === "--status" && argv[i + 1]) { args.status = argv[++i]; }
+    else if (arg === "--attempt" && argv[i + 1]) { args.attempt = parseInt(argv[++i], 10); }
+    else if (arg === "--note" && argv[i + 1]) { args.note = argv[++i]; }
+    else if (arg === "--evidence" && argv[i + 1]) { args.evidence.push(argv[++i]); }
+    i++;
+  }
+  return args;
+}
+
+function main() {
+  const args = parseArgs(process.argv);
+
+  if (!args.stage || !args.status) {
+    console.error("Usage: harness-report --stage <stage> --status <status> [--attempt <n>] [--evidence <path>...] [--note \"<text>\"]");
+    process.exit(1);
+  }
+
+  if (!VALID_STAGES.includes(args.stage)) {
+    console.error(`Invalid stage: ${args.stage}. Valid: ${VALID_STAGES.join(", ")}`);
+    process.exit(1);
+  }
+
+  if (!VALID_STATUSES.includes(args.status)) {
+    console.error(`Invalid status: ${args.status}. Valid: ${VALID_STATUSES.join(", ")}`);
+    process.exit(1);
+  }
+
+  const harnessDir = path.resolve(process.cwd(), ".harness");
+  if (!fs.existsSync(harnessDir)) {
+    fs.mkdirSync(harnessDir, { recursive: true });
+  }
+
+  const stateFile = path.join(harnessDir, "state.json");
+
+  let state = {};
+  if (fs.existsSync(stateFile)) {
+    try { state = JSON.parse(fs.readFileSync(stateFile, "utf-8")); } catch {}
+  }
+
+  const stageIndex = VALID_STAGES.indexOf(args.stage);
+
+  state.stage = args.stage;
+  state.stageIndex = stageIndex;
+  state.status = args.status;
+  state.attempt = args.attempt || state.attempt || 1;
+  state.evidence = args.evidence.length ? args.evidence : (state.evidence || []);
+  state.note = args.note || state.note || "";
+  state.updatedAt = new Date().toISOString();
+
+  // Append to history log
+  const historyFile = path.join(harnessDir, "state-history.jsonl");
+  const entry = JSON.stringify({ ...state, ts: state.updatedAt }) + "\n";
+  fs.appendFileSync(historyFile, entry);
+
+  fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
+  console.log(`[harness-report] ${args.stage} -> ${args.status}`);
+}
+
+main();

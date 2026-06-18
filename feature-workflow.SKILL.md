@@ -1,106 +1,127 @@
 ---
 name: feature-workflow
 description: >
-  Quy trình end-to-end để một AI agent (Claude Code) tự thực hiện trọn một feature/task
-  trong một lane cô lập: nghiên cứu → lập kế hoạch → code → kiểm thử nhiều tầng → tạo PR →
-  tích hợp → manual test + chụp màn hình → đẩy staging → QC → theo dõi PR. Dùng skill này
-  cho MỌI task chạy trong một lane của Feature Harness. Đây là phần "90%" giá trị của hệ thống.
+  End-to-end workflow for an autonomous Claude Code agent running inside an isolated
+  Feature Harness lane (a full clone of the target repo in Docker, own port + DB). Drives a
+  single task from research to a watched PR, composing Superpowers skills (brainstorming,
+  writing-plans, subagent-driven-development, systematic-debugging, verification-before-completion).
+  Use this whenever the lane launcher says "Use the feature-workflow skill to deliver this task."
+  This is the core workflow of the harness — follow it exactly, end to end.
 ---
 
-# Feature Workflow (chạy trong một lane cô lập)
+# Feature Workflow
 
-Bạn (agent) đang làm việc trong **một bản copy hoàn chỉnh, cô lập của repo** (có server riêng, DB riêng, port riêng, Docker). Nhiệm vụ: đưa **một task duy nhất** đi trọn vòng đời dưới đây. Mỗi bước chỉ được coi là **PASS khi có bằng chứng (evidence)** — không báo "xanh" suông.
+You are an autonomous agent inside ONE isolated lane (a full clone of the target repo, running in
+Docker on its own port + DB). Your job: take a SINGLE task from intake all the way to a watched PR,
+running the whole pipeline yourself. You stay in this session the entire time and dispatch your own
+subagents — you are NOT called once per stage.
 
-## Nguyên tắc xuyên suốt
-- **Evidence-first:** mỗi bước phải để lại artifact chứng minh (kết quả test, ảnh chụp màn hình, log). Không có evidence → đánh dấu `passed_no_evidence` và DỪNG để người kiểm.
-- **Self-heal có giới hạn:** fail thì tự đọc lỗi, sửa, quay lại bước trước. Quá `MAX_ATTEMPTS` (mặc định 3) → `blocked`, chờ người.
-- **Không tự merge vào `main`.** Luôn dừng ở "watch PR".
-- **Ghi log mỗi lần chuyển bước** vào `.harness/logs/` để dashboard hiển thị.
-- Kết thúc mỗi lần chạy, in một khối máy-đọc-được:
-  `<<HARNESS_RESULT>>{"ok":true|false,"stage":"...","evidence":["..."],"summary":"..."}<<END>>`
+## Iron laws (non-negotiable)
+1. **Report every stage transition** via the `harness-report` CLI (contract below). The dashboard is blind without it.
+2. **Evidence-first.** A stage is only `done` when you have concrete evidence (test output, screenshots, logs). If criteria look met but you have no evidence, report `passed_no_evidence` and STOP that stage for human review — do not advance.
+3. **Acquire the heavy lock** (`harness-lock acquire`) before any Docker-heavy step (e2e+QC, dev/QC) and release it after. Only one lane may hold it at a time.
+4. **Never push to `main`. Never merge.** Stop at `watch PR` and wait for a human.
+5. **Use Superpowers skills, don't reinvent them.** If a Superpowers skill applies to a phase, you MUST invoke it (see mapping). Confirm exact skill names from the installed skill list if unsure.
+6. **Bounded self-heal.** On failure, debug and re-enter the prior stage, incrementing `attempt`. After `MAX_ATTEMPTS` (default 3) on the same stage, report `blocked` and stop.
 
----
+## Reporting contract (call these from the shell)
+```
+harness-report --stage <stage> --status <status> [--attempt <n>] [--evidence <path> ...] [--note "<text>"]
+# stage   : intake | implement | gates | PR | integrate | "e2e+QC" | review | "er gate" | push-dev | "dev/QC" | "watch PR" | done
+# status  : running | passed_no_evidence | blocked | needs_you | done | fail
+harness-lock acquire <laneSlug>     # blocks until it is this lane's turn
+harness-lock release <laneSlug>
+```
+Report `running` when you ENTER a stage, then a terminal status when you leave it.
 
-## Bước 0 — Intake
-- Đọc `task-prompt.md`: mục tiêu + **predefined criteria** (tiêu chí nghiệm thu).
-- Xác nhận môi trường lane đã sẵn sàng (server lên ở `PORT`, DB kết nối được).
-- Tóm tắt lại task và criteria bằng lời của bạn để chắc đã hiểu đúng.
+## Pipeline
 
-## Bước 1 — Research & Re-plan (đầu tư kỹ ở đây)
-Đây là bước tinh chỉnh nhiều nhất; làm cẩn thận sẽ giảm hẳn lỗi về sau.
-1. Khảo sát codebase liên quan tới task (file, module, data model, luồng hiện có).
-2. Lập **plan** chi tiết: các thay đổi, file đụng tới, rủi ro, cách test.
-3. **Blend + Agent-Debate review loop** (quan trọng):
-   - Tổng hợp ("blend") plan thành một bản thống nhất.
-   - **Spawn một sub-agent** đóng vai phản biện để review bản blend (tìm lỗ hổng, mâu thuẫn, thiếu sót, rủi ro flow/data).
-   - Agent chính nhận phản hồi, **blend lại**.
-   - Lặp spawn-review → blend cho tới khi sub-agent không còn phản đối đáng kể → plan "chín".
-- *Evidence:* lưu `plan.md` (bản cuối) + `plan-debate.md` (các vòng phản biện).
+### 0 - intake
+- `harness-report --stage intake --status running`
+- Read the task title + acceptance criteria from your launch prompt. Confirm the lane app is up (`curl localhost:$PORT/health`). Restate the task + criteria in your own words.
+- -> `--status done --note "understood; app healthy"`
 
-## Bước 2 — Implement
-- Code theo plan đã chốt. Commit nhỏ, message rõ ràng.
-- Build phải sạch (không lỗi cú pháp/type).
-- *Evidence:* build log.
+### 1 - research & plan  (Superpowers: brainstorming -> writing-plans)
+- `--stage implement --status running`
+- Invoke **`superpowers:brainstorming`** ("the blend"): explore the codebase, ask/answer the key design questions, surface alternatives, save a short design doc to `./.harness/design.md`.
+- Invoke **`superpowers:writing-plans`**: break the work into bite-sized tasks with exact file paths + verification steps. Save to `./.harness/plan.md`.
+- Evidence: `design.md`, `plan.md`.
 
-## Bước 3 — Gates (cổng kiểm tra tự động)
-Chạy và phải PASS hết: **lint → typecheck → unit test → đối chiếu từng predefined criteria.**
-- Fail bất kỳ → quay lại Bước 2 sửa (re-enter, tăng attempt).
-- *Evidence:* test report (đường dẫn file).
+### 2 - implement + review  (Superpowers: subagent-driven-development)
+This is the "agent debate" / multi-level review the workflow is built around.
+- Invoke **`superpowers:subagent-driven-development`** to execute `plan.md`:
+  - Dispatch a **fresh implementer subagent per task** (isolated context, specify the model explicitly: cheap tier for transcription tasks, mid-tier for prose-described work).
+  - After each task run the **two-stage review**: spec-compliance review first, then code-quality review.
+  - At the end run the **whole-branch review** (`superpowers:requesting-code-review`).
+- If a subagent reports BLOCKED you cannot resolve -> escalate (see fail rules).
+- Build must be clean. Evidence: subagent reports + review notes.
+- -> `--stage implement --status done --evidence ./.harness/reviews`
 
-## Bước 4 — Multi-level Review (nhiều tầng, đây là điểm hay bị thiếu)
-Lần lượt:
-1. **Logic review:** logic đúng chưa, edge case, lỗi ngầm.
-2. **Flow review:** đi qua **user flow** và **data flow** — có hợp lý không? có tự nhiên không? có **user-friendly** không?
-3. **Full text-based review:** đọc **toàn bộ diff dưới dạng văn bản một lượt** (không review rải rác trong lúc code) — cách này bắt được nhiều lỗi hơn review xen kẽ.
-- Có vấn đề → quay lại bước phù hợp (2 hoặc 1) để sửa.
-- *(Khuyến nghị của tác giả: nếu được, nhờ đồng nghiệp/người review thêm.)*
-- *Evidence:* `review-notes.md`.
+### 3 - gates
+- `--stage gates --status running`
+- Run the project's lint + typecheck + unit tests. Cross-check EVERY acceptance criterion explicitly.
+- FAIL -> invoke **`superpowers:systematic-debugging`** (root cause before fixes), fix, re-enter stage 2. `attempt++`.
+- -> `--status done --evidence <test report path>`
 
-## Bước 5 — Create PR
-- `gh pr create --base development --head feat/<slug> --title "<task>" --body "<tóm tắt + criteria + evidence>"`.
-- *Evidence:* số PR.
+### 4 - PR
+- `--stage PR --status running`
+- `gh pr create --base development --head feat/<slug> --title "<task>" --body "<summary + criteria + evidence links>"`.
+- -> `--status done --note "PR #<n>"`
 
-## Bước 6 — Integrate
-- Merge/cập nhật nhánh `development` vào nhánh feature.
-- **Conflict → re-merge → re-integrate** (lặp tới khi sạch hoặc `blocked`).
-- *Evidence:* merge log, CI status sau merge.
+### 5 - integrate
+- `--stage integrate --status running`
+- Merge `development` into the feature branch. Conflicts -> resolve -> re-run gates -> "re-merge -> re-integrate" (bounded loop).
+- -> `--status done`
 
-## Bước 7 — Manual Test + Screenshots (trên LOCAL)
-- Tự thao tác qua các màn hình/chức năng chính của task trên app local (`http://localhost:PORT`).
-- **Chụp màn hình** từng bước quan trọng, lưu vào `.harness/qc-local/` (có thể nhiều — ví dụ ~39 ảnh).
-- *Evidence:* thư mục `qc-local/*.png`. Thiếu ảnh → `passed_no_evidence`.
+### 6 - e2e + QC  (HEAVY - Docker)
+- `harness-lock acquire <laneSlug>` FIRST.
+- `--stage "e2e+QC" --status running`
+- Run e2e suite. Then **manual test on local**: drive the main user flows, capture screenshots into `./.harness/qc-local/`.
+- Invoke **`superpowers:verification-before-completion`** to confirm criteria are truly met with evidence.
+- `harness-lock release <laneSlug>` when done.
+- No screenshots/log -> `--status passed_no_evidence` and STOP. With evidence -> `--status done --evidence ./.harness/qc-local`.
 
-## Bước 8 — Push to Staging (dev)
-- Đẩy lên môi trường staging/dev.
-- Lưu ý: bước chạy nặng (Docker/e2e) phải xin **global lock** — chỉ một lane chạy tại một thời điểm.
-- *Evidence:* deploy log.
+### 7 - review  (multi-level)
+- `--stage review --status running`
+- Beyond code review, do a **flow review**: walk the **user flow** and **data flow** - logical? natural? user-friendly? Then a **full text-based read of the whole diff** in one pass (catches more than inline review). Reply to / resolve PR comments.
+- Issues -> re-enter the appropriate stage. -> `--status done --evidence ./.harness/review-notes.md`
 
-## Bước 9 — QC trên Staging + Screenshots
-- Manual test lại lần nữa trên staging (gọi là **QC**).
-- **Chụp màn hình** lưu vào `.harness/qc-dev/` (ví dụ ~14 ảnh).
-- *Evidence:* thư mục `qc-dev/*.png`.
+### 8 - er gate  (human gate)
+- `--stage "er gate" --status needs_you --note "awaiting release approval"` and STOP.
+- The harness will `--resume` you when a human approves.
 
-## Bước 10 — Watch PR (vòng chờ + tự sửa)
-- Vào trạng thái `watching-pr`, **poll định kỳ**:
-  - Có ai **comment** vào PR? → đọc, sửa theo, **quay lại** bước phù hợp rồi đi tiếp một vòng.
-  - **Base branch** (`development`) có thay đổi gây **conflict**? → cập nhật, re-integrate.
-- Không tự merge — chờ **người** merge. Khi người merge → Bước 11.
+### 9 - push-dev
+- `--stage push-dev --status running` -> deploy to staging/dev. -> `--status done --evidence <deploy log>`
 
-## Bước 11 — Done
-- (Tuỳ chọn) dọn dẹp, báo cáo tổng kết task + toàn bộ evidence.
+### 10 - dev/QC  (HEAVY - Docker)
+- `harness-lock acquire <laneSlug>`; `--stage "dev/QC" --status running`
+- Manual QC on staging; screenshots into `./.harness/qc-dev/`. Release lock.
+- -> `--status done --evidence ./.harness/qc-dev` (or `passed_no_evidence`).
 
----
+### 11 - watch PR  (resumable loop - do NOT spin forever)
+- `--stage "watch PR" --status needs_you --note "watching PR #<n> for comments / base conflicts"` and STOP the turn.
+- When the harness `--resume`s you (a comment arrived, or `development` changed): determine what changed ->
+  - new blocking comment -> re-enter the right stage, fix, come back around;
+  - base conflict -> re-integrate (stage 5);
+  - human merged -> proceed to `done`.
+- Never merge yourself.
 
-## Bảng quyết định nhanh
-| Tình huống | Hành động |
+### 12 - done
+- `--stage done --status done --note "<summary + all evidence>"`. Optionally clean up.
+
+## Result block
+At the end of EACH invocation, print a machine-readable block so the harness can parse it even if `harness-report` failed:
+```
+<<HARNESS_RESULT>>{"stage":"...","status":"...","attempt":N,"evidence":["..."],"sessionId":"...","summary":"..."}<<END>>
+```
+
+## Decision table
+| Situation | Action |
 |---|---|
-| Bước PASS + có evidence | sang bước sau |
-| Bước PASS nhưng thiếu evidence | `passed_no_evidence` → dừng cho người kiểm |
-| Bước FAIL | self-heal: đọc lỗi → sửa → re-enter bước trước (attempt++) |
-| attempt > MAX_ATTEMPTS | `blocked` → needs-you |
-| conflict khi integrate | re-merge → re-integrate (loop có giới hạn) |
-| có comment PR / base đổi | quay lại bước phù hợp, đi thêm một vòng |
-| tới watch PR | giữ `watching-pr`, chờ người merge |
-
-## Liên quan
-- Skill chị em **`pr-review-loop`**: poll và review tất cả PR đang mở (kể cả của chính mình); khi PR do harness tạo có comment/blocking thì kích hoạt lane tương ứng quay lại sửa.
+| stage pass + evidence | report `done`, advance |
+| pass, no evidence | report `passed_no_evidence`, STOP |
+| fail | `superpowers:systematic-debugging` -> fix -> re-enter prior stage, `attempt++` |
+| attempt > MAX_ATTEMPTS | report `blocked`, STOP |
+| integrate conflict | re-integrate (bounded loop) |
+| er gate / watch PR | report `needs_you`, STOP; wait for `--resume` |
+| resumed at watch PR | inspect change -> fix / re-integrate / done |

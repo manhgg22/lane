@@ -1,0 +1,61 @@
+#!/usr/bin/env node
+// harness-signal-lane — CLI for pr-review-loop to signal a feature lane to re-enter and fix
+// Usage: harness-signal-lane <laneSlug> --reason "<why>"
+
+const http = require("http");
+
+const HARNESS_PORT = process.env.HARNESS_PORT || 8090;
+
+function httpRequest(method, path, body) {
+  return new Promise((resolve, reject) => {
+    const opts = {
+      hostname: "host.docker.internal",
+      port: HARNESS_PORT,
+      path,
+      method,
+      headers: { "Content-Type": "application/json" },
+    };
+    const req = http.request(opts, (res) => {
+      let data = "";
+      res.on("data", (c) => data += c);
+      res.on("end", () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
+        catch { resolve({ status: res.statusCode, body: data }); }
+      });
+    });
+    req.on("error", reject);
+    if (body) req.write(JSON.stringify(body));
+    req.end();
+  });
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  const slug = args[0];
+  let reason = "";
+
+  for (let i = 1; i < args.length; i++) {
+    if (args[i] === "--reason" && args[i + 1]) {
+      reason = args[++i];
+    }
+  }
+
+  if (!slug) {
+    console.error("Usage: harness-signal-lane <laneSlug> --reason \"<why>\"");
+    process.exit(1);
+  }
+
+  try {
+    const res = await httpRequest("POST", `/api/lanes/${slug}/signal`, { reason });
+    if (res.status === 200) {
+      console.log(`[harness-signal-lane] signaled ${slug}: ${reason}`);
+    } else {
+      console.error(`[harness-signal-lane] failed: ${JSON.stringify(res.body)}`);
+    }
+  } catch (err) {
+    console.error(`[harness-signal-lane] API error: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+main();

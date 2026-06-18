@@ -1,30 +1,69 @@
 # Architecture Decisions
 
+## Core Principle: "Harness Thin / Skill Thick"
+
+The harness does NOT orchestrate the agent step-by-step. Each lane is **one long-lived Claude Code session** that self-drives the entire 12-stage pipeline using Superpowers skills. The harness only does 4 things:
+
+1. **Isolate** — clone repo, Docker container, port allocation
+2. **Launch** — start one `claude -p` session per lane with `--output-format stream-json`
+3. **Monitor** — read `.harness/state.json` (written by agent via `harness-report` CLI)
+4. **Human-in-loop** — `--resume` the session when a human approves (er gate, watch PR)
+
+## Agent-to-Harness Communication
+
+```
+Agent (in Docker lane)          Harness (orchestrator)
+    |                                |
+    |-- harness-report              --> writes .harness/state.json
+    |-- harness-lock acquire/release --> calls API on host.docker.internal
+    |-- harness-signal-lane          --> calls API to wake another lane
+    |-- <<HARNESS_RESULT>> block    --> parsed from agent stdout (fallback)
+    |                                |
+    |                                |<-- monitor polls state.json
+    |                                |<-- DB update + SSE broadcast
+```
+
+## Docker Auth: Mount Only Credentials
+
+**Critical lesson from PHASE A spike**: mounting the entire `~/.claude/` directory into Docker causes `ConnectionRefused` errors because IDE lock files (`ide/*.lock`) make the CLI try to connect to a VS Code WebSocket proxy that doesn't exist in the container. 
+
+**Fix**: mount ONLY two files:
+- `~/.claude/.credentials.json` → `/home/lane/.claude/.credentials.json:ro`
+- `~/.claude.json` → `/home/lane/.claude.json:ro`
+
+## Skills Architecture
+
+Skills live in `skills/` and are copied into each lane's `.claude/skills/` during `createFullLane()`. The two core skills:
+
+| Skill | Purpose | Superpowers Composed |
+|-------|---------|---------------------|
+| `feature-workflow.md` | Drives a task through 12 stages | brainstorming → writing-plans → subagent-driven-development → systematic-debugging → verification-before-completion |
+| `pr-review-loop.md` | Dedicated review lane, polls open PRs | requesting-code-review |
+
+## CLI Tools (in `tools/`)
+
+Installed into each lane at `.harness/bin/`. Agent calls these from shell:
+
+| Tool | Purpose |
+|------|---------|
+| `harness-report` | Write stage transitions to `.harness/state.json` |
+| `harness-lock` | Acquire/release global heavy-stage lock via harness API |
+| `harness-signal-lane` | PR review loop signals feature lanes to re-enter and fix |
+
 ## Why Next.js instead of Vite?
 
-The harness dashboard needs **server-side rendering** for the audit log and metrics pages — these pages can contain thousands of rows and benefit from streaming HTML. Next.js 15 App Router provides this out of the box with React Server Components. Vite would require a separate SSR setup or ship everything as a client-side SPA, which is fine for a small dashboard but doesn't scale for the audit/metrics views.
-
-If you prefer Vite: the frontend is self-contained in `packages/web/` and only depends on `@harness/sdk`. Swapping Next.js for a Vite SPA means replacing `packages/web/` — the rest of the system is unaffected.
+The harness dashboard needs **server-side rendering** for the audit log and metrics pages — these pages can contain thousands of rows and benefit from streaming HTML. Next.js 15 App Router provides this out of the box with React Server Components.
 
 ## Why a separate SDK package?
 
-`@harness/sdk` exists so the frontend doesn't import from `@harness/api` directly. Benefits:
-
-1. **Decoupling** — the SDK is a typed HTTP client. The frontend doesn't know about Fastify, database internals, or server-side modules. This means `packages/web/` can be deployed separately or replaced entirely.
-2. **Reuse** — the SDK can be used from scripts, CLI tools, or other consumers (e.g. a Slack bot that creates lanes).
-3. **React hooks** — `useLanes()`, `useLane()`, `useSSE()`, `useMutation()` live in the SDK so any React frontend can use them without reimplementing fetch/SSE logic.
+`@harness/sdk` exists so the frontend doesn't import from `@harness/api` directly:
+1. **Decoupling** — typed HTTP client, no server-side dependencies
+2. **Reuse** — scripts, CLI tools, Slack bot can use it
+3. **React hooks** — `useLanes()`, `useLane()`, `useSSE()`, `useMutation()`
 
 ## Why SSE (Server-Sent Events)?
 
-The dashboard needs real-time updates: when a lane advances, when a lock is acquired, when the scheduler ticks. Options considered:
-
-| Option | Pros | Cons |
-|--------|------|------|
-| **Polling** | Simple | Latency, unnecessary load |
-| **WebSocket** | Bidirectional | Overkill — dashboard is read-only for events |
-| **SSE** | Simple, HTTP-native, auto-reconnect | Unidirectional only |
-
-SSE was chosen because the event flow is **server-to-client only**. Actions (advance, block, pass) go through REST POST endpoints — there's no need for bidirectional communication. SSE is simpler than WebSocket, works through proxies, and the browser's `EventSource` API handles reconnection automatically.
+Event flow is **server-to-client only**. SSE is simpler than WebSocket, works through proxies, and `EventSource` handles reconnection automatically. Actions go through REST POST endpoints.
 
 ## Package dependency graph
 
@@ -33,9 +72,13 @@ SSE was chosen because the event flow is **server-to-client only**. Actions (adv
     ^
     |
 @harness/orchestrator  (depends on types, sql.js)
-    ^
+    ^                   launcher.ts — spawns claude per lane
+    |                   monitor.ts — watches state.json → DB → SSE
     |
 @harness/api       (depends on orchestrator, types, fastify)
+                    agent-control.ts — launch/resume/session endpoints
+                    lock-api.ts — acquire/release locks for agents
+                    lane-signal.ts — PR review → feature lane signals
     
 @harness/sdk       (depends on types only — talks to API via HTTP)
     ^
@@ -43,15 +86,17 @@ SSE was chosen because the event flow is **server-to-client only**. Actions (adv
 @harness/web       (depends on sdk, types — Next.js frontend)
 ```
 
-The orchestrator never imports from api, sdk, or web. The api never imports from sdk or web. The sdk never imports from api or orchestrator. This ensures clean layering.
-
 ## Why sql.js (WASM SQLite)?
 
-The harness runs on the developer's local machine. Using sql.js means:
+No native binary compilation, single-file database, no external database server. Persistence via `writeFileSync` after every mutation for crash recovery.
 
-- No native binary compilation (works on Windows/Mac/Linux without node-gyp)
-- Single-file database (`.harness/harness.db`)
-- No external database server to install or manage
-- Persistence via `writeFileSync` after every mutation (crash recovery)
+## 12-Stage Pipeline
 
-Tradeoff: sql.js loads the entire database into memory. This is fine for the harness use case (dozens of lanes, not millions of rows).
+```
+intake → implement → gates → PR → integrate → e2e+QC → review → er gate → push-dev → dev/QC → watch PR → done
+                                                 ↑                                        ↑
+                                            HEAVY (lock)                              HEAVY (lock)
+```
+
+Heavy stages (`e2e+QC`, `dev/QC`) require global lock — agent calls `harness-lock acquire` before entering.
+Human gates (`er gate`, `watch PR`) report `needs_you` and STOP — harness `--resume`s on approval.

@@ -70,7 +70,19 @@ export function renderDockerCompose(
   slug: string,
   port: number,
   dbUrl: string,
+  credentialsFile?: string,
+  claudeJsonFile?: string,
 ): string {
+  const volumes = ["./data:/app/data"];
+  if (credentialsFile) {
+    volumes.push(`${credentialsFile}:/home/lane/.claude/.credentials.json:ro`);
+  }
+  if (claudeJsonFile) {
+    volumes.push(`${claudeJsonFile}:/home/lane/.claude.json:ro`);
+  }
+
+  const volumeLines = volumes.map((v) => `      - ${v}`).join("\n");
+
   const content = `services:
   ${slug}:
     build: .
@@ -81,8 +93,11 @@ export function renderDockerCompose(
       - PORT=${port}
       - DATABASE_URL=${dbUrl}
       - NODE_ENV=development
+      - HARNESS_PORT=${process.env.HARNESS_PORT ?? "8090"}
     volumes:
-      - ./data:/app/data
+${volumeLines}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "const h=require('http');h.get('http://localhost:${port}/health',r=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"]
@@ -176,6 +191,8 @@ export async function createFullLane(
   config: HarnessConfig,
   laneConfig: LaneConfig,
   db: Database,
+  credentialsFile?: string,
+  claudeJsonFile?: string,
 ): Promise<Lane> {
   const port = allocatePort(config.basePort, db);
   const dbUrl = `./data/app.db`;
@@ -188,7 +205,8 @@ export async function createFullLane(
     config.integrationBranch,
   );
 
-  renderDockerCompose(dir, laneConfig.slug, port, dbUrl);
+  installLaneTools(rootDir, dir);
+  renderDockerCompose(dir, laneConfig.slug, port, dbUrl, credentialsFile, claudeJsonFile);
 
   const lane = insertLane(db, {
     title: laneConfig.title,
@@ -201,6 +219,37 @@ export async function createFullLane(
   });
 
   return lane;
+}
+
+function installLaneTools(rootDir: string, laneDir: string): void {
+  const toolsDir = resolve(rootDir, "tools");
+  const targetBin = join(laneDir, ".harness", "bin");
+  if (!existsSync(targetBin)) mkdirSync(targetBin, { recursive: true });
+
+  const tools = ["harness-report", "harness-lock", "harness-signal-lane"];
+  for (const tool of tools) {
+    const src = join(toolsDir, tool);
+    const dest = join(targetBin, tool);
+    if (existsSync(src)) {
+      const content = readFileSync(src, "utf-8");
+      writeFileSync(dest, content, { mode: 0o755 });
+    }
+  }
+
+  const skillsDir = resolve(rootDir, "skills");
+  const targetSkills = join(laneDir, ".claude", "skills");
+  if (!existsSync(targetSkills)) mkdirSync(targetSkills, { recursive: true });
+
+  for (const file of readdirSync(skillsDir)) {
+    if (file.endsWith(".md")) {
+      const src = join(skillsDir, file);
+      const dest = join(targetSkills, file);
+      writeFileSync(dest, readFileSync(src, "utf-8"));
+    }
+  }
+
+  const harnessDir = join(laneDir, ".harness");
+  if (!existsSync(harnessDir)) mkdirSync(harnessDir, { recursive: true });
 }
 
 export async function upLane(

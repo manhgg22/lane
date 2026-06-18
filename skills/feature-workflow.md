@@ -1,164 +1,127 @@
-# Feature Workflow Skill
-
-You are an AI agent inside a Feature Harness lane. The harness orchestrates your work through stages. This skill governs the IMPLEMENT stage — you receive a feature title, branch name, and acceptance criteria. Your job: research, plan, implement, test, commit. Output a structured result block so the harness can parse your work.
-
+---
+name: feature-workflow
+description: >
+  End-to-end workflow for an autonomous Claude Code agent running inside an isolated
+  Feature Harness lane (a full clone of the target repo in Docker, own port + DB). Drives a
+  single task from research to a watched PR, composing Superpowers skills (brainstorming,
+  writing-plans, subagent-driven-development, systematic-debugging, verification-before-completion).
+  Use this whenever the lane launcher says "Use the feature-workflow skill to deliver this task."
+  This is the core workflow of the harness — follow it exactly, end to end.
 ---
 
-## Output Contract
+# Feature Workflow
 
-Every response MUST end with this block. The harness parses it to decide pass/fail/blocked.
+You are an autonomous agent inside ONE isolated lane (a full clone of the target repo, running in
+Docker on its own port + DB). Your job: take a SINGLE task from intake all the way to a watched PR,
+running the whole pipeline yourself. You stay in this session the entire time and dispatch your own
+subagents — you are NOT called once per stage.
 
+## Iron laws (non-negotiable)
+1. **Report every stage transition** via the `harness-report` CLI (contract below). The dashboard is blind without it.
+2. **Evidence-first.** A stage is only `done` when you have concrete evidence (test output, screenshots, logs). If criteria look met but you have no evidence, report `passed_no_evidence` and STOP that stage for human review — do not advance.
+3. **Acquire the heavy lock** (`harness-lock acquire`) before any Docker-heavy step (e2e+QC, dev/QC) and release it after. Only one lane may hold it at a time.
+4. **Never push to `main`. Never merge.** Stop at `watch PR` and wait for a human.
+5. **Use Superpowers skills, don't reinvent them.** If a Superpowers skill applies to a phase, you MUST invoke it (see mapping). Confirm exact skill names from the installed skill list if unsure.
+6. **Bounded self-heal.** On failure, debug and re-enter the prior stage, incrementing `attempt`. After `MAX_ATTEMPTS` (default 3) on the same stage, report `blocked` and stop.
+
+## Reporting contract (call these from the shell)
 ```
-<<HARNESS_RESULT>>
-status: pass | fail | blocked
-stage: implement
-summary: <one-line summary of what you did>
-files_changed:
-  - <path>
-  - <path>
-tests_added:
-  - <path>
-tests_passed: true | false
-commit_sha: <sha or "none">
-evidence:
-  - <description of evidence, e.g. "test output shows 5/5 pass">
-  - <screenshot path or log excerpt>
-blockers:
-  - <reason if status=blocked>
-<<END>>
+harness-report --stage <stage> --status <status> [--attempt <n>] [--evidence <path> ...] [--note "<text>"]
+# stage   : intake | implement | gates | PR | integrate | "e2e+QC" | review | "er gate" | push-dev | "dev/QC" | "watch PR" | done
+# status  : running | passed_no_evidence | blocked | needs_you | done | fail
+harness-lock acquire <laneSlug>     # blocks until it is this lane's turn
+harness-lock release <laneSlug>
+```
+Report `running` when you ENTER a stage, then a terminal status when you leave it.
+
+## Pipeline
+
+### 0 - intake
+- `harness-report --stage intake --status running`
+- Read the task title + acceptance criteria from your launch prompt. Confirm the lane app is up (`curl localhost:$PORT/health`). Restate the task + criteria in your own words.
+- -> `--status done --note "understood; app healthy"`
+
+### 1 - research & plan  (Superpowers: brainstorming -> writing-plans)
+- `--stage implement --status running`
+- Invoke **`superpowers:brainstorming`** ("the blend"): explore the codebase, ask/answer the key design questions, surface alternatives, save a short design doc to `./.harness/design.md`.
+- Invoke **`superpowers:writing-plans`**: break the work into bite-sized tasks with exact file paths + verification steps. Save to `./.harness/plan.md`.
+- Evidence: `design.md`, `plan.md`.
+
+### 2 - implement + review  (Superpowers: subagent-driven-development)
+This is the "agent debate" / multi-level review the workflow is built around.
+- Invoke **`superpowers:subagent-driven-development`** to execute `plan.md`:
+  - Dispatch a **fresh implementer subagent per task** (isolated context, specify the model explicitly: cheap tier for transcription tasks, mid-tier for prose-described work).
+  - After each task run the **two-stage review**: spec-compliance review first, then code-quality review.
+  - At the end run the **whole-branch review** (`superpowers:requesting-code-review`).
+- If a subagent reports BLOCKED you cannot resolve -> escalate (see fail rules).
+- Build must be clean. Evidence: subagent reports + review notes.
+- -> `--stage implement --status done --evidence ./.harness/reviews`
+
+### 3 - gates
+- `--stage gates --status running`
+- Run the project's lint + typecheck + unit tests. Cross-check EVERY acceptance criterion explicitly.
+- FAIL -> invoke **`superpowers:systematic-debugging`** (root cause before fixes), fix, re-enter stage 2. `attempt++`.
+- -> `--status done --evidence <test report path>`
+
+### 4 - PR
+- `--stage PR --status running`
+- `gh pr create --base development --head feat/<slug> --title "<task>" --body "<summary + criteria + evidence links>"`.
+- -> `--status done --note "PR #<n>"`
+
+### 5 - integrate
+- `--stage integrate --status running`
+- Merge `development` into the feature branch. Conflicts -> resolve -> re-run gates -> "re-merge -> re-integrate" (bounded loop).
+- -> `--status done`
+
+### 6 - e2e + QC  (HEAVY - Docker)
+- `harness-lock acquire <laneSlug>` FIRST.
+- `--stage "e2e+QC" --status running`
+- Run e2e suite. Then **manual test on local**: drive the main user flows, capture screenshots into `./.harness/qc-local/`.
+- Invoke **`superpowers:verification-before-completion`** to confirm criteria are truly met with evidence.
+- `harness-lock release <laneSlug>` when done.
+- No screenshots/log -> `--status passed_no_evidence` and STOP. With evidence -> `--status done --evidence ./.harness/qc-local`.
+
+### 7 - review  (multi-level)
+- `--stage review --status running`
+- Beyond code review, do a **flow review**: walk the **user flow** and **data flow** - logical? natural? user-friendly? Then a **full text-based read of the whole diff** in one pass (catches more than inline review). Reply to / resolve PR comments.
+- Issues -> re-enter the appropriate stage. -> `--status done --evidence ./.harness/review-notes.md`
+
+### 8 - er gate  (human gate)
+- `--stage "er gate" --status needs_you --note "awaiting release approval"` and STOP.
+- The harness will `--resume` you when a human approves.
+
+### 9 - push-dev
+- `--stage push-dev --status running` -> deploy to staging/dev. -> `--status done --evidence <deploy log>`
+
+### 10 - dev/QC  (HEAVY - Docker)
+- `harness-lock acquire <laneSlug>`; `--stage "dev/QC" --status running`
+- Manual QC on staging; screenshots into `./.harness/qc-dev/`. Release lock.
+- -> `--status done --evidence ./.harness/qc-dev` (or `passed_no_evidence`).
+
+### 11 - watch PR  (resumable loop - do NOT spin forever)
+- `--stage "watch PR" --status needs_you --note "watching PR #<n> for comments / base conflicts"` and STOP the turn.
+- When the harness `--resume`s you (a comment arrived, or `development` changed): determine what changed ->
+  - new blocking comment -> re-enter the right stage, fix, come back around;
+  - base conflict -> re-integrate (stage 5);
+  - human merged -> proceed to `done`.
+- Never merge yourself.
+
+### 12 - done
+- `--stage done --status done --note "<summary + all evidence>"`. Optionally clean up.
+
+## Result block
+At the end of EACH invocation, print a machine-readable block so the harness can parse it even if `harness-report` failed:
+```
+<<HARNESS_RESULT>>{"stage":"...","status":"...","attempt":N,"evidence":["..."],"sessionId":"...","summary":"..."}<<END>>
 ```
 
-If you cannot produce this block, the harness treats it as a crash (fail with no evidence).
-
----
-
-## Phase 1: Research
-
-Before writing any code, understand what you are working with.
-
-1. **Read the project structure** — use `find` or `ls` to map out the directory tree. Identify the framework, language, test runner, build tool.
-2. **Read relevant files** — read files related to the feature area. Look at existing patterns: how are components structured? How are routes defined? How are tests written?
-3. **Read tests** — find existing test files. Understand the test framework and assertion style.
-4. **Identify dependencies** — what packages are installed? What APIs are available?
-
-Output a mental model: "This is a [framework] app with [structure]. Tests use [runner]. The feature area touches [files]."
-
----
-
-## Phase 2: Plan (Blend + Debate)
-
-Plan your implementation before writing code. Use a structured internal debate:
-
-### Step 2a: Generate 2-3 approaches
-
-For each approach, consider:
-- Which files to create vs modify
-- Where to put new code (follow existing patterns)
-- What tests to write
-- What could go wrong (edge cases, breaking changes)
-
-### Step 2b: Evaluate tradeoffs
-
-For each approach, score on:
-- **Minimal diff** — fewer changed files = less risk
-- **Convention-following** — does it match existing patterns?
-- **Testability** — can you write clear, focused tests?
-- **Criteria coverage** — does it satisfy ALL acceptance criteria?
-
-### Step 2c: Pick the winner
-
-Choose the approach with the best tradeoff. If two are close, prefer the one with a smaller diff.
-
-State your plan clearly:
-```
-PLAN:
-- Modify: [files]
-- Create: [files]
-- Tests: [files]
-- Approach: [1-2 sentences]
-```
-
----
-
-## Phase 3: Implement
-
-Execute your plan. Follow these rules strictly:
-
-### Code rules
-- Follow the project's existing code style exactly (indentation, naming, imports)
-- Do NOT add new dependencies unless the criteria explicitly require them
-- Do NOT refactor unrelated code — touch only what the feature needs
-- Do NOT modify CI/CD, Dockerfile, or deployment config unless criteria say so
-- Keep changes minimal and focused
-
-### Commit rules
-- Commit all changes with a descriptive message: `feat: <what you did>`
-- Do NOT push to remote. Only commit locally.
-- If you need multiple commits, that is fine — but each commit should be atomic and passing
-
----
-
-## Phase 4: Test
-
-### Step 4a: Write tests
-- Write tests for your new code. Follow the existing test patterns exactly.
-- Cover the happy path AND at least one edge case per criterion.
-- If the project has no tests, create a test file following common conventions for the framework.
-
-### Step 4b: Run all tests
-- Run the project's test command (usually `npm test`, `pytest`, etc.)
-- ALL tests must pass — existing AND new.
-- If a test fails, fix your code (not the test) unless the test was wrong.
-
-### Step 4c: Collect evidence
-Evidence is mandatory. A pass without evidence is marked `passed_no_evidence` by the harness, which triggers re-review.
-
-Valid evidence:
-- Test output showing pass counts
-- Screenshots of the feature working (if UI)
-- curl/API output showing correct responses (if API)
-- Log output showing correct behavior
-
----
-
-## Phase 5: Self-Review
-
-Before producing your result block, review your own work:
-
-1. **Diff check** — run `git diff --stat` and `git diff` to see what you changed. Is anything unexpected?
-2. **Criteria check** — re-read each acceptance criterion. Does your implementation satisfy it? Be honest.
-3. **Test check** — did all tests pass? Did you write tests for each criterion?
-4. **Convention check** — does your code follow the project's patterns?
-
-If any check fails, go back and fix before producing the result block.
-
----
-
-## Evidence-First Rule
-
-The harness enforces an evidence-first policy:
-
-- **pass** = all criteria met + tests pass + evidence attached
-- **passed_no_evidence** = criteria appear met but no concrete evidence was collected. The harness will flag this for human review and may re-enter the stage.
-- **fail** = tests fail, criteria not met, or implementation error
-- **blocked** = cannot proceed (missing dependency, unclear requirement, merge conflict)
-
-When in doubt between pass and blocked, choose blocked. A blocked stage gets human attention. A false pass wastes everyone's time.
-
----
-
-## Error Handling
-
-- If `git commit` fails: check if there are changes to commit. If no changes, your implementation may not have saved. Re-check.
-- If tests fail after your changes: DO NOT skip tests. Fix your code. If you cannot fix it after 2 attempts, report status=fail with the test output as evidence.
-- If you encounter a merge conflict: report status=blocked with the conflict details.
-- If a dependency is missing: report status=blocked. Do NOT install packages without explicit criteria.
-
----
-
-## Reminders
-
-- You are running in an isolated lane directory. Other lanes exist but you cannot see them.
-- The harness will parse your <<HARNESS_RESULT>> block. If it is malformed, the harness treats it as a crash.
-- Do NOT push. Do NOT create PRs. The harness handles those stages separately.
-- Time limit: you have up to 10 minutes. If you are still working after 8 minutes, wrap up and commit what you have.
+## Decision table
+| Situation | Action |
+|---|---|
+| stage pass + evidence | report `done`, advance |
+| pass, no evidence | report `passed_no_evidence`, STOP |
+| fail | `superpowers:systematic-debugging` -> fix -> re-enter prior stage, `attempt++` |
+| attempt > MAX_ATTEMPTS | report `blocked`, STOP |
+| integrate conflict | re-integrate (bounded loop) |
+| er gate / watch PR | report `needs_you`, STOP; wait for `--resume` |
+| resumed at watch PR | inspect change -> fix / re-integrate / done |

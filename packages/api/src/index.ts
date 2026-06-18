@@ -11,6 +11,9 @@ import { stageRoutes } from "./routes/stage-routes.js";
 import { sseRoutes } from "./routes/sse.js";
 import { schedulerRoutes } from "./routes/scheduler.js";
 import { monitoringRoutes } from "./routes/monitoring.js";
+import { lockApiRoutes } from "./routes/lock-api.js";
+import { laneSignalRoutes } from "./routes/lane-signal.js";
+import { agentControlRoutes } from "./routes/agent-control.js";
 import { stopScheduler } from "@harness/orchestrator/scheduler";
 import { releaseAllLocks, getAllLanes, saveDb } from "@harness/orchestrator";
 
@@ -39,6 +42,9 @@ await stageRoutes(app, db, eventBus);
 await sseRoutes(app, eventBus);
 await schedulerRoutes(app, db, config, eventBus);
 await monitoringRoutes(app, db);
+await lockApiRoutes(app, db);
+await laneSignalRoutes(app, db, eventBus);
+await agentControlRoutes(app, db, config, ROOT_DIR, eventBus);
 
 try {
   await app.listen({ port: HARNESS_PORT, host: "0.0.0.0" });

@@ -2,6 +2,8 @@
 
 A local orchestrator that runs multiple AI agents (Claude Code headless) in parallel, each in isolated Docker containers, to develop features across independent "lanes" — from intake to PR merge.
 
+**Architecture: "Harness Thin / Skill Thick"** — each lane is ONE long-lived Claude Code session that self-drives the entire 12-stage pipeline using Superpowers skills. The harness only isolates, launches, monitors, and handles human-in-loop.
+
 ## What This Does
 
 Feature Harness automates the multi-stage software development lifecycle. You define lanes (feature tasks), and the system drives each lane through a 12-stage pipeline using AI agents, with human checkpoints at critical gates.
@@ -158,6 +160,25 @@ lanes:
 | `POST` | `/api/scheduler/stop` | Stop scheduler |
 | `GET` | `/api/scheduler/status` | Get scheduler state (running, ticks, last tick) |
 | `POST` | `/api/scheduler/tick` | Trigger one manual scheduler tick |
+
+### Agent Control (new — "harness thin" architecture)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/lanes/:id/launch` | Launch long-lived agent session for lane |
+| `POST` | `/api/lanes/:id/resume` | Resume agent session (human-in-loop) |
+| `GET` | `/api/lanes/:id/session` | Get active agent session info |
+| `GET` | `/api/sessions` | List all active agent sessions |
+
+### Lock API (agent-initiated)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/locks/acquire` | Agent acquires heavy-stage lock |
+| `POST` | `/api/locks/release` | Agent releases lock |
+
+### Lane Signals (PR review loop)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/lanes/:slug/signal` | Signal a lane to re-enter and fix |
 
 ### Monitoring
 | Method | Endpoint | Description |
@@ -335,6 +356,13 @@ feature-harness/
 │               ├── StageRunTable.tsx    # Stage run history
 │               ├── SchedulerControl.tsx # Start/stop/tick scheduler
 │               └── NavBar.tsx           # Navigation + health indicator
+├── skills/              # Agent skill files (copied into each lane)
+│   ├── feature-workflow.md   # 12-stage workflow composing Superpowers
+│   └── pr-review-loop.md    # Dedicated PR review lane
+├── tools/               # CLI tools installed in each lane
+│   ├── harness-report        # Write state.json for monitor
+│   ├── harness-lock          # Acquire/release global heavy lock
+│   └── harness-signal-lane   # PR review → feature lane signal
 ├── lanes.yaml           # Lane definitions
 ├── package.json         # Root workspace scripts
 └── pnpm-workspace.yaml  # Workspace config
@@ -350,6 +378,15 @@ feature-harness/
 - [x] **Phase 4** — Polling loop: server-side scheduler, auto-retry, scheduler API
 - [x] **Phase 5** — Multi-lane concurrency: semaphore, parallel execution, lock types, priority
 - [x] **Phase 6** — Production hardening: structured logger, crash recovery, audit log, metrics, graceful shutdown
+
+### Redesign Phases ("Harness Thin / Skill Thick")
+
+- [x] **Phase A** — Spike: `claude -p` + `--output-format stream-json` works in Docker (auth fix: mount only `.credentials.json` + `.claude.json`)
+- [x] **Phase B** — Skills: `feature-workflow.md` + `pr-review-loop.md` compose Superpowers; `harness-report`, `harness-lock`, `harness-signal-lane` CLI tools
+- [x] **Phase C** — Launcher: one long-lived session per lane (`launcher.ts`); monitor reads `state.json` → DB → SSE (`monitor.ts`)
+- [x] **Phase D** — Global lock via `harness-lock` (agent-initiated); human-in-loop via `--resume` endpoint
+- [ ] **Phase E** — 2 lane end-to-end test (pending: requires ANTHROPIC_API_KEY or OAuth in Docker)
+- [x] **Phase F** — Documentation update (ARCHITECTURE.md, README.md)
 
 ## License
 

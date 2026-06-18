@@ -34,7 +34,33 @@ export function parseHarnessResult(output: string): HarnessResult | null {
   const match = output.match(/<<HARNESS_RESULT>>([\s\S]*?)<<END>>/);
   if (!match) return null;
 
-  const block = match[1];
+  const block = match[1].trim();
+
+  // Try JSON format first (new SKILL.md contract)
+  if (block.startsWith("{")) {
+    try {
+      const json = JSON.parse(block);
+      const statusMap: Record<string, HarnessResult["status"]> = {
+        done: "pass",
+        pass: "pass",
+        fail: "fail",
+        blocked: "blocked",
+        needs_you: "blocked",
+        passed_no_evidence: "blocked",
+      };
+      const status = statusMap[json.status];
+      if (!status) return null;
+      return {
+        status,
+        stage: json.stage ?? "",
+        summary: json.summary ?? "",
+        evidence: json.evidence ?? [],
+        raw: block,
+      };
+    } catch {}
+  }
+
+  // Legacy YAML-like format
   const get = (key: string): string => {
     const line = block.match(new RegExp(`^${key}:\\s*(.+)$`, "m"));
     return line ? line[1].trim() : "";
