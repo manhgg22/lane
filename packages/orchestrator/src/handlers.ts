@@ -22,6 +22,50 @@ function loadSkill(name: string): string {
   }
 }
 
+export interface HarnessResult {
+  status: "pass" | "fail" | "blocked";
+  stage: string;
+  summary: string;
+  evidence: string[];
+  raw: string;
+}
+
+export function parseHarnessResult(output: string): HarnessResult | null {
+  const match = output.match(/<<HARNESS_RESULT>>([\s\S]*?)<<END>>/);
+  if (!match) return null;
+
+  const block = match[1];
+  const get = (key: string): string => {
+    const line = block.match(new RegExp(`^${key}:\\s*(.+)$`, "m"));
+    return line ? line[1].trim() : "";
+  };
+  const getList = (key: string): string[] => {
+    const idx = block.indexOf(`${key}:`);
+    if (idx === -1) return [];
+    const after = block.slice(idx);
+    const items: string[] = [];
+    for (const line of after.split("\n").slice(1)) {
+      if (/^\s+-\s/.test(line)) {
+        items.push(line.replace(/^\s+-\s*/, "").trim());
+      } else if (/^\S/.test(line) && line.includes(":")) {
+        break;
+      }
+    }
+    return items;
+  };
+
+  const status = get("status") as HarnessResult["status"];
+  if (!["pass", "fail", "blocked"].includes(status)) return null;
+
+  return {
+    status,
+    stage: get("stage"),
+    summary: get("summary"),
+    evidence: getList("evidence"),
+    raw: block.trim(),
+  };
+}
+
 export interface StageHandler {
   canEnter(lane: Lane, db: Database): boolean;
   execute(lane: Lane, db: Database): Promise<StageResult>;
@@ -56,7 +100,20 @@ function createImplementHandler(): StageHandler {
           timeoutMs: 600_000,
           appendSystemPrompt: skill || undefined,
         });
+
+        const parsed = parseHarnessResult(result.output);
+        if (parsed) {
+          console.log(`[implement] Parsed result: status=${parsed.status}, summary=${parsed.summary}`);
+          if (parsed.evidence.length) {
+            console.log(`[implement] Evidence: ${parsed.evidence.join("; ")}`);
+          }
+          return parsed.status === "pass" ? "pass"
+            : parsed.status === "blocked" ? "blocked"
+            : "fail";
+        }
+
         if (result.exitCode === 0) {
+          console.log(`[implement] No <<HARNESS_RESULT>> block, using exit code (passed_no_evidence)`);
           return "pass";
         }
         return "fail";
@@ -208,6 +265,14 @@ function createReviewHandler(): StageHandler {
           timeoutMs: 300_000,
           appendSystemPrompt: skill || undefined,
         });
+
+        const parsed = parseHarnessResult(result.output);
+        if (parsed) {
+          console.log(`[review] Parsed result: verdict=${parsed.status}, summary=${parsed.summary}`);
+          return parsed.status === "pass" ? "pass"
+            : parsed.status === "blocked" ? "blocked"
+            : "fail";
+        }
 
         if (result.output.includes("ISSUES_FOUND: true")) {
           return "blocked";
