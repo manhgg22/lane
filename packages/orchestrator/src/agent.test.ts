@@ -59,13 +59,7 @@ describe("runAgent", () => {
 
     expect(spawnSpy).toHaveBeenCalledWith(
       "claude",
-      expect.arrayContaining([
-        "--headless", "--print",
-        "--prompt", "do something",
-        "--model", "sonnet",
-        "--allowedTools", "Edit",
-        "--allowedTools", "Bash",
-      ]),
+      ["-p", "do something", "--model", "sonnet", "--allowedTools", "Edit,Bash"],
       expect.objectContaining({ cwd: "/tmp/lane", shell: true }),
     );
   });

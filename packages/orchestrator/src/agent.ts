@@ -19,14 +19,12 @@ export async function runAgent(
 ): Promise<AgentResult> {
   const { timeoutMs = 300_000, allowedTools, model } = options;
 
-  const args = ["--headless", "--print", "--prompt", prompt];
+  const args = ["-p", prompt];
   if (model) {
     args.push("--model", model);
   }
   if (allowedTools?.length) {
-    for (const tool of allowedTools) {
-      args.push("--allowedTools", tool);
-    }
+    args.push("--allowedTools", allowedTools.join(","));
   }
 
   const start = Date.now();
