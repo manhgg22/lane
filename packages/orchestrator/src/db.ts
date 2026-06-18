@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS lanes (
   port INTEGER NOT NULL,
   db_url TEXT NOT NULL DEFAULT '',
   tags TEXT NOT NULL DEFAULT '[]',
+  criteria TEXT NOT NULL DEFAULT '[]',
   status TEXT NOT NULL DEFAULT '["running"]',
   stage_index INTEGER NOT NULL DEFAULT 0,
   progress INTEGER NOT NULL DEFAULT 0,
@@ -141,6 +142,7 @@ function rowToLane(row: Record<string, unknown>): Lane {
     port: row.port as number,
     dbUrl: row.db_url as string,
     tags: JSON.parse(row.tags as string),
+    criteria: JSON.parse((row.criteria as string) ?? "[]"),
     status: JSON.parse(row.status as string),
     stageIndex: row.stage_index as number,
     progress: row.progress as number,
@@ -179,19 +181,21 @@ export function insertLane(
     branch: string;
     port: number;
     tags: string[];
+    criteria?: string[];
     mode?: string;
     dbUrl?: string;
   },
 ): Lane {
   db.run(`
-    INSERT INTO lanes (title, slug, branch, port, tags, mode, db_url)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO lanes (title, slug, branch, port, tags, criteria, mode, db_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     lane.title,
     lane.slug,
     lane.branch,
     lane.port,
     JSON.stringify(lane.tags),
+    JSON.stringify(lane.criteria ?? []),
     lane.mode ?? "implement",
     lane.dbUrl ?? "",
   ]);

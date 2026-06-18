@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { Database } from "./db.js";
 import type { Lane, StageName, StageResult } from "@harness/types";
 import { STAGES } from "@harness/types";
@@ -10,6 +12,15 @@ import { getLaneDir } from "./lane-manager.js";
 
 const HEAVY_LOCK_TYPE = "heavy_stage";
 const ROOT_DIR = process.env.HARNESS_ROOT ?? process.cwd();
+
+function loadSkill(name: string): string {
+  const skillPath = resolve(ROOT_DIR, "skills", `${name}.md`);
+  try {
+    return readFileSync(skillPath, "utf-8");
+  } catch {
+    return "";
+  }
+}
 
 export interface StageHandler {
   canEnter(lane: Lane, db: Database): boolean;
@@ -36,11 +47,15 @@ function createImplementHandler(): StageHandler {
     canEnter: () => true,
     async execute(lane: Lane): Promise<StageResult> {
       const dir = getLaneDir(ROOT_DIR, lane.slug);
-      const criteria = lane.tags;
+      const criteria = lane.criteria?.length ? lane.criteria : lane.tags;
       const prompt = buildImplementPrompt(lane, criteria);
+      const skill = loadSkill("feature-workflow");
 
       try {
-        const result = await runAgent(dir, prompt, { timeoutMs: 600_000 });
+        const result = await runAgent(dir, prompt, {
+          timeoutMs: 600_000,
+          appendSystemPrompt: skill || undefined,
+        });
         if (result.exitCode === 0) {
           return "pass";
         }
@@ -188,7 +203,11 @@ function createReviewHandler(): StageHandler {
 
       try {
         const prompt = buildReviewPrompt(lane, diffResult.stdout);
-        const result = await runAgent(dir, prompt, { timeoutMs: 300_000 });
+        const skill = loadSkill("pr-review-loop");
+        const result = await runAgent(dir, prompt, {
+          timeoutMs: 300_000,
+          appendSystemPrompt: skill || undefined,
+        });
 
         if (result.output.includes("ISSUES_FOUND: true")) {
           return "blocked";

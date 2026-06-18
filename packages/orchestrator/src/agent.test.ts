@@ -55,11 +55,12 @@ describe("runAgent", () => {
     await runAgent("/tmp/lane", "do something", {
       model: "sonnet",
       allowedTools: ["Edit", "Bash"],
+      appendSystemPrompt: "You are a test agent",
     });
 
     expect(spawnSpy).toHaveBeenCalledWith(
       "claude",
-      ["-p", "do something", "--model", "sonnet", "--allowedTools", "Edit,Bash"],
+      ["-p", "do something", "--model", "sonnet", "--allowedTools", "Edit,Bash", "--append-system-prompt", "You are a test agent"],
       expect.objectContaining({ cwd: "/tmp/lane", shell: true }),
     );
   });

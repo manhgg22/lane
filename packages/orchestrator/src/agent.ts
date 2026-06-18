@@ -4,6 +4,7 @@ export interface AgentOptions {
   timeoutMs?: number;
   allowedTools?: string[];
   model?: string;
+  appendSystemPrompt?: string;
 }
 
 export interface AgentResult {
@@ -17,7 +18,7 @@ export async function runAgent(
   prompt: string,
   options: AgentOptions = {},
 ): Promise<AgentResult> {
-  const { timeoutMs = 300_000, allowedTools, model } = options;
+  const { timeoutMs = 300_000, allowedTools, model, appendSystemPrompt } = options;
 
   const args = ["-p", prompt];
   if (model) {
@@ -25,6 +26,9 @@ export async function runAgent(
   }
   if (allowedTools?.length) {
     args.push("--allowedTools", allowedTools.join(","));
+  }
+  if (appendSystemPrompt) {
+    args.push("--append-system-prompt", appendSystemPrompt);
   }
 
   const start = Date.now();

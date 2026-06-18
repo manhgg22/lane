@@ -31,6 +31,7 @@ export interface Lane {
   port: number;
   dbUrl: string;
   tags: string[];
+  criteria: string[];
   status: LaneStatus[];
   stageIndex: number;
   progress: number;
