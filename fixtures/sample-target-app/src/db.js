@@ -78,3 +78,25 @@ export function deleteTodo(db, id) {
   db.run("DELETE FROM todos WHERE id = ?", [id]);
   save(db);
 }
+
+export function searchTodos(db, { q = "", page = 1, limit = 10 }) {
+  const term = `%${q}%`;
+  const offset = (page - 1) * limit;
+
+  const countStmt = db.prepare("SELECT COUNT(*) as cnt FROM todos WHERE title LIKE ? COLLATE NOCASE");
+  countStmt.bind([term]);
+  countStmt.step();
+  const { cnt } = countStmt.getAsObject();
+  countStmt.free();
+
+  const stmt = db.prepare("SELECT * FROM todos WHERE title LIKE ? COLLATE NOCASE ORDER BY id DESC LIMIT ? OFFSET ?");
+  stmt.bind([term, limit, offset]);
+  const results = [];
+  while (stmt.step()) {
+    const r = stmt.getAsObject();
+    results.push({ ...r, done: !!r.done });
+  }
+  stmt.free();
+
+  return { data: results, total: cnt, page, limit };
+}

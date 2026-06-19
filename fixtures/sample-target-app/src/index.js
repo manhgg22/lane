@@ -1,5 +1,5 @@
 import express from "express";
-import { initDb, getAllTodos, getTodo, createTodo, updateTodo, deleteTodo } from "./db.js";
+import { initDb, getAllTodos, getTodo, createTodo, updateTodo, deleteTodo, searchTodos } from "./db.js";
 
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const app = express();
@@ -66,6 +66,13 @@ app.get("/", (_req, res) => {
 
 app.get("/api/todos", (_req, res) => {
   res.json(getAllTodos(db));
+});
+
+app.get("/api/todos/search", (req, res) => {
+  const q = req.query.q || "";
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit, 10) || 10));
+  res.json(searchTodos(db, { q, page, limit }));
 });
 
 app.get("/api/todos/:id", (req, res) => {
