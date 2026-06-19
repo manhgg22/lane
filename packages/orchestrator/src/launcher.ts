@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, watch } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { Database } from "./db.js";
 import { getLaneById, updateLane, insertEvent, insertAudit } from "./db.js";
@@ -8,6 +8,7 @@ import type { Lane } from "@harness/types";
 export interface LaunchOptions {
   credentialsFile: string;
   claudeJsonFile: string;
+  pluginDir?: string;
   maxBudgetUsd?: number;
   timeoutMinutes?: number;
 }
@@ -56,7 +57,6 @@ export function launchLane(
   const statePath = join(harnessDir, "state.json");
 
   const prompt = buildLaunchPrompt(lane);
-  const skill = loadSkillContent(rootDir);
 
   const args = [
     "-p", prompt,
@@ -64,7 +64,7 @@ export function launchLane(
     "--verbose",
     "--dangerously-skip-permissions",
   ];
-  if (skill) args.push("--append-system-prompt", skill);
+  if (opts.pluginDir) args.push("--plugin-dir", opts.pluginDir);
   if (opts.maxBudgetUsd) args.push("--max-budget-usd", String(opts.maxBudgetUsd));
 
   const timeoutMs = (opts.timeoutMinutes ?? 480) * 60_000;
@@ -182,11 +182,3 @@ export function resumeLane(
   return session;
 }
 
-function loadSkillContent(rootDir: string): string {
-  const skillPath = resolve(rootDir, "skills", "feature-workflow.md");
-  try {
-    return readFileSync(skillPath, "utf-8");
-  } catch {
-    return "";
-  }
-}
