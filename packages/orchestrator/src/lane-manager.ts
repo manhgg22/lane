@@ -72,6 +72,7 @@ export function renderDockerCompose(
   dbUrl: string,
   credentialsFile?: string,
   claudeJsonFile?: string,
+  pluginDir?: string,
 ): string {
   const volumes = ["./data:/app/data"];
   if (credentialsFile) {
@@ -79,6 +80,9 @@ export function renderDockerCompose(
   }
   if (claudeJsonFile) {
     volumes.push(`${claudeJsonFile}:/home/lane/.claude.json:ro`);
+  }
+  if (pluginDir) {
+    volumes.push(`${pluginDir}:/home/lane/.claude/plugins:ro`);
   }
 
   const volumeLines = volumes.map((v) => `      - ${v}`).join("\n");
@@ -153,6 +157,10 @@ export function dockerDown(laneDir: string): void {
   }
 }
 
+export function getContainerName(slug: string): string {
+  return `harness-${slug}`;
+}
+
 export function getRunningHarnessContainers(): string[] {
   try {
     const output = execSync(
@@ -193,6 +201,7 @@ export async function createFullLane(
   db: Database,
   credentialsFile?: string,
   claudeJsonFile?: string,
+  pluginDir?: string,
 ): Promise<Lane> {
   const port = allocatePort(config.basePort, db);
   const dbUrl = `./data/app.db`;
@@ -206,7 +215,7 @@ export async function createFullLane(
   );
 
   installLaneTools(rootDir, dir);
-  renderDockerCompose(dir, laneConfig.slug, port, dbUrl, credentialsFile, claudeJsonFile);
+  renderDockerCompose(dir, laneConfig.slug, port, dbUrl, credentialsFile, claudeJsonFile, pluginDir);
 
   const lane = insertLane(db, {
     title: laneConfig.title,

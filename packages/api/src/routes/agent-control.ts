@@ -9,6 +9,7 @@ import {
   getAllActiveSessions,
   startMonitoringLane,
   insertEvent,
+  getContainerName,
 } from "@harness/orchestrator";
 import type { EventBus } from "../event-bus.js";
 
@@ -21,6 +22,7 @@ export async function agentControlRoutes(
 ): Promise<void> {
   const credentialsFile = process.env.CLAUDE_CREDENTIALS_FILE ?? "";
   const claudeJsonFile = process.env.CLAUDE_JSON_FILE ?? "";
+  const pluginDir = process.env.SUPERPOWERS_PLUGIN_DIR ?? "";
 
   app.post<{ Params: { id: string }; Body: { maxBudgetUsd?: number } }>(
     "/api/lanes/:id/launch",
@@ -34,9 +36,12 @@ export async function agentControlRoutes(
         return reply.status(409).send({ error: "Agent already running for this lane" });
       }
 
+      const containerName = getContainerName(lane.slug);
       const session = launchLane(rootDir, lane, db, {
         credentialsFile,
         claudeJsonFile,
+        containerName,
+        pluginDir: pluginDir || undefined,
         maxBudgetUsd: request.body?.maxBudgetUsd,
       });
 
@@ -64,6 +69,7 @@ export async function agentControlRoutes(
       const session = resumeLane(rootDir, lane, db, {
         credentialsFile,
         claudeJsonFile,
+        containerName: getContainerName(lane.slug),
       }, request.body?.instruction);
 
       if (!session) {

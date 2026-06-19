@@ -9,6 +9,7 @@ export interface LaunchOptions {
   credentialsFile: string;
   claudeJsonFile: string;
   pluginDir?: string;
+  containerName?: string;
   maxBudgetUsd?: number;
   timeoutMinutes?: number;
 }
@@ -58,27 +59,33 @@ export function launchLane(
 
   const prompt = buildLaunchPrompt(lane);
 
-  const args = [
+  const claudeArgs = [
     "-p", prompt,
     "--output-format", "stream-json",
     "--verbose",
     "--dangerously-skip-permissions",
   ];
-  if (opts.pluginDir) args.push("--plugin-dir", opts.pluginDir);
-  if (opts.maxBudgetUsd) args.push("--max-budget-usd", String(opts.maxBudgetUsd));
+  if (opts.pluginDir) claudeArgs.push("--plugin-dir", opts.pluginDir);
+  if (opts.maxBudgetUsd) claudeArgs.push("--max-budget-usd", String(opts.maxBudgetUsd));
 
   const timeoutMs = (opts.timeoutMinutes ?? 480) * 60_000;
 
-  const child = spawn("claude", args, {
-    cwd: laneDir,
-    stdio: ["ignore", "pipe", "pipe"],
-    shell: true,
-    timeout: timeoutMs,
-    env: {
-      ...process.env,
-      HARNESS_PORT: process.env.HARNESS_PORT ?? "8090",
-    },
-  });
+  const child = opts.containerName
+    ? spawn("docker", ["exec", "-u", "lane", opts.containerName, "claude", ...claudeArgs], {
+        stdio: ["ignore", "pipe", "pipe"],
+        shell: false,
+        timeout: timeoutMs,
+      })
+    : spawn("claude", claudeArgs, {
+        cwd: laneDir,
+        stdio: ["ignore", "pipe", "pipe"],
+        shell: true,
+        timeout: timeoutMs,
+        env: {
+          ...process.env,
+          HARNESS_PORT: process.env.HARNESS_PORT ?? "8090",
+        },
+      });
 
   const session: LaneSession = {
     laneId: lane.id,
@@ -144,7 +151,7 @@ export function resumeLane(
   const logsDir = join(laneDir, ".harness", "logs");
 
   const prompt = instruction ?? "Continue from where you left off.";
-  const args = [
+  const claudeArgs = [
     "-p", prompt,
     "--resume", session.sessionId,
     "--output-format", "stream-json",
@@ -152,12 +159,20 @@ export function resumeLane(
     "--dangerously-skip-permissions",
   ];
 
-  const child = spawn("claude", args, {
-    cwd: laneDir,
-    stdio: ["ignore", "pipe", "pipe"],
-    shell: true,
-    timeout: (opts.timeoutMinutes ?? 480) * 60_000,
-  });
+  const timeoutMs = (opts.timeoutMinutes ?? 480) * 60_000;
+
+  const child = opts.containerName
+    ? spawn("docker", ["exec", "-u", "lane", opts.containerName, "claude", ...claudeArgs], {
+        stdio: ["ignore", "pipe", "pipe"],
+        shell: false,
+        timeout: timeoutMs,
+      })
+    : spawn("claude", claudeArgs, {
+        cwd: laneDir,
+        stdio: ["ignore", "pipe", "pipe"],
+        shell: true,
+        timeout: timeoutMs,
+      });
 
   child.stdout.on("data", (chunk: Buffer) => {
     try {

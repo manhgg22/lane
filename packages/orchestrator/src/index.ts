@@ -2,7 +2,7 @@ export { openDb, saveDb, getAllLanes, getLaneById, insertLane, updateLane, getSt
 export type { Database } from "./db.js";
 export { seedDemoData } from "./seed.js";
 export { loadConfig } from "./config.js";
-export { cloneLane, removeLaneDir, allocatePort, renderDockerCompose, dockerUp, dockerDown, getRunningHarnessContainers, reconcileOnBoot, createFullLane, upLane, downLane, getLaneDir } from "./lane-manager.js";
+export { cloneLane, removeLaneDir, allocatePort, renderDockerCompose, dockerUp, dockerDown, getRunningHarnessContainers, reconcileOnBoot, createFullLane, upLane, downLane, getLaneDir, getContainerName } from "./lane-manager.js";
 
 export { STAGES } from "@harness/types";
 export type { Lane, StageRun, LaneEvent, LaneConfig, HarnessConfig, LaneStatus, StageState, LaneMode, StageName, StageResult, CreateLaneRequest, LaneResponse, ErrorResponse, SchedulerTickResponse, LockInfo, SSEEvent, RunResult, SchedulerResult, AgentResult, ExecResult, SchedulerOptions } from "@harness/types";
